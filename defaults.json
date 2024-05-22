@@ -1,0 +1,10 @@
+{
+  "invokeai":"./scripts/gpt4/execquery.sh",
+  "optcompiler":"/usr/bin/clang",
+  "optreport":"-Rpass-missed=.",
+  "optcompile":"-c",
+  "justResponse":"false",
+  "justCompile":"false",
+  "queryFile":"query.json",
+  "responseFile":"response.txt"
+}
