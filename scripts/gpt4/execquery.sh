@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
-#~ python3 -m venv openai-env ./openaiquery.py
+if [[ -n "${OPENAI_ENV_DIR}" ]]; then
+  openaidir="${OPENAI_ENV_DIR}"
 
-source ./openai-env/bin/activate && python3 ./openaiquery.py
+  source $(openaidir)/bin/activate 
+fi
+
+python3 ./openaiquery.py
+
