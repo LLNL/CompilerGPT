@@ -3,8 +3,9 @@
   "optcompiler":"/usr/bin/clang",
   "optreport":"-Rpass-missed=.",
   "optcompile":"-c",
-  "justResponse":"false",
-  "justCompile":"false",
+  "justResponse":false,
+  "justCompile":false,
   "queryFile":"query.json",
-  "responseFile":"response.txt"
+  "responseFile":"response.txt",
+  "testScript":""
 }

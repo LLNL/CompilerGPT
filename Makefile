@@ -44,5 +44,5 @@ clean:
 
 .phony: pure
 pure: clean
-	rm -rf *.bin
+	rm -rf *.bin query.json response.txt
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 
 if [[ -n "${OPENAI_ENV_DIR}" ]]; then
-  openaidir="${OPENAI_ENV_DIR}"
-
-  source $(openaidir)/bin/activate 
+  source "$OPENAI_ENV_DIR/bin/activate"
 fi
 
-python3 ./openaiquery.py
+dir=`dirname $0`
+
+query=`readlink -e $dir/openaiquery.py`
+
+echo "$query"
+python3 "$query"
 

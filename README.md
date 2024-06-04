@@ -22,6 +22,7 @@ Environment: Executing a query against openai is supported by three environemnt 
 
 Build optai:
 
+    export BOOST_HOME="/path/to/boost/install/dir"
     make
 
 Call optai:

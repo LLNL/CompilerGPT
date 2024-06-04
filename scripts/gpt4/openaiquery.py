@@ -1,5 +1,9 @@
 from openai import OpenAI
 import json
+#import os
+
+#if 'REQUESTS_CA_BUNDLE' not in os.environ:
+#  os.environ['REQUESTS_CA_BUNDLE'] = '/home/pirkelbauer2/certs/cspca.crt'
 
 client = OpenAI()
 
