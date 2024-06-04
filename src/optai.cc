@@ -32,7 +32,21 @@ const char* usage = "usage: optai switches c++file.cc"
                     "\n    --help            displays this help message and exits."
                     "\n    --config=jsonfile config file in json format."
                     "\n                      default: jsonfile=optai.json"
-                    "\n    --createconfig    creates config file and exits.";
+                    "\n    --create-config   creates config file and exits."
+                    "\n    --harness-param=p sets an optional parameter for the test harness."
+                    "\n                      default: none"
+                    "\n                      If set, the parameter is passed as second"
+                    "\n                      argument to the test script configured in"
+                    "\n                      the config file."
+                    "\n                      The tester is invoked with two arguments,"
+                    "\n                      the generated file and param:"
+                    "\n                        testScript genfile.cc p"
+                    "\n"
+                    "\n  TestScript: success or failure is returned through the exit status"
+                    "\n              a numeric quality score is returned on the last"
+                    "\n              non-empty line on stdout."
+                    "\n              The lower the quality score the better (e.g., runtime)."
+                    ;
 
 struct Settings
 {
@@ -115,7 +129,7 @@ struct CompilationResult : CompilationResultBase
 {
   using base = CompilationResultBase;
   using base::base;
-  
+
   const std::string& output()  const { return std::get<0>(*this); }
   bool               success() const { return std::get<1>(*this); }
 };
@@ -199,21 +213,72 @@ int invokeAI(const Settings& settings)
   return ai.native_exit_code();
 }
 
-bool invoketestScript(const Settings& settings, const std::string& filename, const std::string& harness)
+template <class F>
+F nanValue() { return std::numeric_limits<F>::quiet_NaN(); }
+
+/// reads the string s and returns the numeric value of the last
+///   non-empty line.
+long double
+testScore(std::string_view s)
+{
+  std::size_t       beg = 0;
+  std::size_t       pos = s.find('\n', beg);
+  std::string_view  line;
+
+  while (pos != std::string::npos)
+  {
+    std::string_view cand = s.substr(beg, pos-beg-1);
+
+    if (!cand.empty()) line = cand;
+
+    beg = pos + 1;
+    pos = s.find('\n', beg);
+  }
+
+  std::string_view cand = s.substr(beg, s.size() - beg);
+
+  if (!cand.empty()) line = cand;
+
+  long double res = nanValue<long double>();
+
+  try
+  {
+    res = std::stold(std::string(line));
+  }
+  catch (const std::invalid_argument& ex) { std::cerr << ex.what() << std::endl; }
+  catch (const std::out_of_range& ex)     { std::cerr << ex.what() << std::endl; }
+
+  return res;
+}
+
+using TestResultBase = std::tuple<bool, long double>;
+
+struct TestResult : TestResultBase
+{
+  using base = TestResultBase;
+  using base::base;
+
+  bool        success() const { return std::get<0>(*this); }
+  long double score()   const { return std::get<1>(*this); }
+};
+
+
+TestResult
+invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
 {
   if (settings.testScript.empty())
   {
     std::cerr << "No test-script configured. Not running tests."
               << std::endl;
-    
-    return true;
+
+    return { true, 0.0 };
   }
-  
+
   std::vector<std::string> args{filename};
-  
+
   if (!harness.empty())
     args.push_back(harness);
-  
+
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
@@ -238,10 +303,13 @@ bool invoketestScript(const Settings& settings, const std::string& filename, con
     res.emplace_back(std::move(line));
 */
 
-  std::cout << outstr.get() << std::endl;
-  std::cerr << errstr.get() << std::endl;
+  std::string outs = outstr.get();
+  std::string errs = errstr.get();
 
-  return tst.native_exit_code();
+  std::cout << outs << std::endl;
+  std::cerr << errs << std::endl;
+
+  return { tst.native_exit_code() == 0, testScore(outs) };
 }
 
 
@@ -329,13 +397,13 @@ json::value initialPrompt(const Settings& settings, std::string output, std::str
   return res;
 }
 
-json::value 
+json::value
 appendSuccessPrompt(json::value val, std::string output, std::string /*filename*/)
 {
   json::array&      res = val.as_array();
   json::object      q;
   std::stringstream txt;
-  
+
   txt << "The previous code works. Following is the current Clang optimization report:\n"
       << output
       << "\nPrioritize the optimizations and rewrite the code to enable better compiler optimizations.\n"
@@ -348,10 +416,10 @@ appendSuccessPrompt(json::value val, std::string output, std::string /*filename*
   return val;
 }
 
-json::value 
+json::value
 appendFailurePrompt(json::value val, std::string output, std::string /*filename*/)
 {
-  json::array&      res = val.as_array();  
+  json::array&      res = val.as_array();
   json::object      q;
   std::stringstream txt;
 
@@ -367,11 +435,11 @@ appendFailurePrompt(json::value val, std::string output, std::string /*filename*
   return val;
 }
 
-  
-json::value 
+
+json::value
 appendResponse(json::value val, std::string response)
 {
-  json::array& res = val.as_array();  
+  json::array& res = val.as_array();
   json::object line;
 
   line["role"]    = "system";
@@ -628,18 +696,18 @@ Settings loadConfig(const std::string& configFileName)
     config.responseFile = loadField(cnfobj, "responseFile", config.responseFile);
     config.testScript   = loadField(cnfobj, "testScript",   config.testScript);
     config.iterations   = loadField(cnfobj, "iterations",   config.iterations);
-    
+
     settings = std::move(config);
   }
   catch (const std::exception& ex)
   {
     std::cerr << ex.what()
-              << "\nUsing default values." 
+              << "\nUsing default values."
               << std::endl;
-  }  
+  }
   catch (...)
   {
-    std::cerr << "Unknown error: Unable to read settings file. Using default values." 
+    std::cerr << "Unknown error: Unable to read settings file. Using default values."
               << std::endl;
   }
 
@@ -668,8 +736,8 @@ void createDefaultConfig(const std::string& configFileName)
   }
 
   std::ofstream ofs(configFileName);
-  Settings      defaults;  
-  
+  Settings      defaults;
+
   // print pretty json by hand, as boost does not pretty print by default.
   // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
   ofs << "{"
@@ -697,7 +765,7 @@ struct CmdLineProc
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pharness) != std::string::npos)
       opts.harness = arg.substr(pharness.size());
-    else 
+    else
       opts.args.push_back(arg);
   }
 
@@ -712,13 +780,55 @@ struct CmdLineProc
 };
 
 std::string CmdLineProc::phelp         = "--help";
-std::string CmdLineProc::pcreateconfig = "--createconfig";
+std::string CmdLineProc::pcreateconfig = "--create-config";
 std::string CmdLineProc::pconfig       = "--config=";
-std::string CmdLineProc::pharness      = "--harness=";
+std::string CmdLineProc::pharness      = "--harness-param=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
   return std::for_each(args.begin(), args.end(), CmdLineProc{});
+}
+
+using RevisionBase = std::tuple<std::string, TestResult>;
+
+struct Revision : RevisionBase
+{
+  using base = RevisionBase;
+  using base::base;
+
+  const std::string& fileName() const { return std::get<0>(*this); }
+  const TestResult&  result()   const { return std::get<1>(*this); }
+};
+
+std::string
+qualityText(const std::vector<Revision>& variants)
+{
+  assert(variants.size() > 2);
+
+  int               el   = variants.size() - 1;
+  const long double curr = variants[el].result().score();
+
+  --el;
+  long double       prev = variants[el].result().score();
+
+  while (std::isnan(prev) && (el>0))
+  {
+    --el;
+    prev = variants[el].result().score();
+  }
+
+  assert(!std::isnan(prev));
+
+  if (std::isnan(curr))
+    return " were not assessed";
+
+  if (curr < prev)
+    return " improved";
+
+  if (prev < curr)
+    return " got worse";
+
+  return " stayed the same";
 }
 
 
@@ -741,9 +851,9 @@ int main(int argc, char** argv)
   }
 
   Settings          settings = loadConfig(cmdlnargs.configFileName);
-  //~ CompilationResult compres{"", true};   
-  CompilationResult compres  = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args); 
-  
+  //~ CompilationResult compres{"", true};
+  CompilationResult compres  = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args);
+
   if (!compres.success())
   {
     std::cerr << "Input file does not compile: \n"
@@ -753,29 +863,44 @@ int main(int argc, char** argv)
   }
 
   if (settings.justCompile) return 0;
-  
-  int         iterations = settings.iterations;
-  json::value query      = initialPrompt(settings, std::move(compres.output()), cmdlnargs.args.back());
-  
+
+
+  json::value           query      = initialPrompt( settings,
+                                                    std::move(compres.output()),
+                                                    cmdlnargs.args.back()
+                                                  );
+  int                   iterations = settings.iterations;
+  std::vector<Revision> variants;
+
+  variants.emplace_back( cmdlnargs.args.back(),
+                         invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness)
+                       );
+
   while (iterations > 0)
   {
-    /*std::string queryArgFile =*/ storeQuery(settings, query);
-    /*int         result =*/ invokeAI(settings);
-    
-    std::string   response = loadAIResponse(settings);
-    std::string   newFile  = storeGeneratedFile(response, cmdlnargs.args.back());
-    
+    storeQuery(settings, query);
+    invokeAI(settings);
+
+    std::string response = loadAIResponse(settings);
+    std::string newFile  = storeGeneratedFile(response, cmdlnargs.args.back());
+
     query = appendResponse(std::move(query), response);
     compres = compileResult(settings, newFile, cmdlnargs.args);
-    
+
     if (compres.success())
     {
-      const bool testres = invoketestScript(settings, newFile, cmdlnargs.harness);
-      
-      if (testres)
+      variants.emplace_back( newFile,
+                             invokeTestScript(settings, newFile, cmdlnargs.harness)
+                           );
+
+      if (variants.back().result().success())
       {
-        std::cerr << "Compiled and tested!" << std::endl;
-        query = appendSuccessPrompt(std::move(query), compres.output(), newFile);
+        std::cerr << "Compiled and tested, results "
+                  << qualityText(variants) << "."
+                  << std::endl;
+
+        // \todo add quality assessment to prompt
+        query = appendSuccessPrompt(std::move(query), compres.output(), variants.back().fileName());
       }
       else
       {
@@ -786,9 +911,11 @@ int main(int argc, char** argv)
     else
     {
       // ask to correct the code
-      std::cerr << "AI code did not compile" << std::endl;
-      
-      query = appendFailurePrompt(std::move(query), compres.output(), newFile);
+      std::cerr << "Generated code did not compile" << std::endl;
+
+      variants.emplace_back( newFile, TestResult{false, nanValue<long double>()} );
+
+      query = appendFailurePrompt(std::move(query), compres.output(), variants.back().fileName());
     }
 
     --iterations;

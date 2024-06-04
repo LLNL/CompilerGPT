@@ -10,6 +10,12 @@ harness=$2
 
 cat "$kernel" "$harness" >code.cc
 
-clang-15 -O3 code.cc -o code.bin
+clang-15 -O3 -march=native code.cc -o code.bin
 
 ./code.bin
+res=$?
+
+echo -n "0.0"
+
+exit res
+
