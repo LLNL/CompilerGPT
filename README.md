@@ -14,9 +14,9 @@ Directory structure:
 * src: C++ source
 * tests/humaneval: test codes (source: https://github.com/THUDM/CodeGeeX.git )
 
-Environment: Executing a query against openai is supported by three environemnt variables:
+Environment: Default queries will use openai's API (in scripts/gpt4/). Three environemnt variables control the invokation:
 * OPENAI\_API\_KEY the openai key for queries
-* OPENAI\_ENV\_DIR (optional) the location of the python environment with the openai connection framework. If unspecified, python will be used without special environment.
+* OPENAI\_ENV\_DIR (optional) the location of the python environment with the openai connection framework. If unspecified, python3 will be used without special environment.
 * REQUESTS\_CA\_BUNDLE (optional) the location of a root certificate to avoid SSL connection errors.
  
 
