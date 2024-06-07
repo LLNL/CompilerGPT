@@ -33,10 +33,13 @@ Call optai:
 
 The configurtation is read from the json file. The config file specifies how to interact with a target compiler and the LLM system.
 
-A default configuration can be created by
+
+A default configuration for GPT4 can be created by
 
     optai --config=configfile.json --createconfig
 
+On BSD systems (such as OS x), the script scripts/gpt4/execquery-bsd.sh can be used instead of scripts/gpt4/execquery-bsd.sh to
+avoid issues with the GNU readlink utility.
 
 
 ## License
