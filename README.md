@@ -1,6 +1,6 @@
 # llmopt
 
-A framework that uses optimization reports in context with an LLM system to optimize C++ codes.
+A framework that uses Clang optimization reports in context with an LLM system to optimize C++ codes.
 
 ## Getting started
 
@@ -17,8 +17,10 @@ Directory structure:
 Environment: Default queries will use openai's API (in scripts/gpt4/). Three environemnt variables control the invokation:
 * OPENAI\_API\_KEY the openai key for queries
 * OPENAI\_ENV\_DIR (optional) the location of the python environment with the openai connection framework. If unspecified, python3 will be used without special environment.
-* REQUESTS\_CA\_BUNDLE (optional) the location of a root certificate to avoid SSL connection errors.
- 
+* SSL\_CERT\_FILE (optional) the location of a root certificate to avoid SSL connection errors.
+  typical error message on Linunx:  \[SSL: CERTIFICATE\_VERIFY\_FAILED\] certificate verify failed: self signed certificate in certificate chain
+* REQUESTS\_CA\_BUNDLE (optional) alternative to set location of the certificate if SSL\_CERT\_FILE does not work.
+
 
 Build optai:
 
