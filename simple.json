@@ -4,7 +4,9 @@
   "optreport":"-Rpass-missed=.",
   "optcompile":"-c",
   "justResponse":false,
+  "justCompile":false,
   "queryFile":"query.json",
   "responseFile":"response.txt",
-  "iterations":1
+  "testScript":"tests/simple/test.sh",
+  "iterations":3
 }

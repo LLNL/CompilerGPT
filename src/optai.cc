@@ -29,6 +29,8 @@ const char* synopsis = "optai: code optimizations through LLMs"
 
 const char* usage = "usage: optai switches c++file.cc"
                     "\n  switches:"
+                    "\n    -h"
+                    "\n    -help"
                     "\n    --help            displays this help message and exits."
                     "\n    --config=jsonfile config file in json format."
                     "\n                      default: jsonfile=optai.json"
@@ -58,7 +60,6 @@ struct Settings
   std::string  responseFile = "response.txt";
   std::string  testScript   = "";
   bool         justResponse = false;
-  bool         justCompile  = false;
   bool         jsonResponse = false;
   std::int64_t iterations   = 1;
 };
@@ -163,6 +164,7 @@ invokeCompiler(const Settings& settings, std::vector<std::string> args)
   ios.run();
 
   const bool success = exitCode.get() == 0;
+  std::cerr << "success(compile): " << success << std::endl;
 
   return { errstr.get(), success };
 }
@@ -178,19 +180,21 @@ compileResult(const Settings& settings, std::string newFile, std::vector<std::st
   return invokeCompiler(settings, args);
 }
 
-int invokeAI(const Settings& settings)
+bool invokeAI(const Settings& settings)
 {
-  std::cerr << "askgpt: " << settings.invokeai << std::endl;
+  std::cerr << "askAI: " << settings.invokeai << std::endl;
 
   std::vector<std::string> noargs;
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
+  std::future<int>         exitCode;
   boost::process::child    ai( settings.invokeai,
                                boost::process::args(noargs),
                                boost::process::std_in.close(),
                                boost::process::std_out > outstr,
                                boost::process::std_err > errstr,
+                               boost::process::on_exit = exitCode,
                                ios
                              );
 
@@ -210,7 +214,10 @@ int invokeAI(const Settings& settings)
   std::cout << outstr.get() << std::endl;
   std::cerr << errstr.get() << std::endl;
 
-  return ai.native_exit_code();
+  const bool success = exitCode.get() == 0;
+  std::cerr << "success (askAI): " << success << std::endl;
+
+  return success;
 }
 
 template <class F>
@@ -227,7 +234,7 @@ testScore(std::string_view s)
 
   while (pos != std::string::npos)
   {
-    std::string_view cand = s.substr(beg, pos-beg-1);
+    std::string_view cand = s.substr(beg, pos-beg);
 
     if (!cand.empty()) line = cand;
 
@@ -279,14 +286,18 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
   if (!harness.empty())
     args.push_back(harness);
 
+  std::cerr << "test: " << settings.testScript << range(args) << std::endl;
+
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
+  std::future<int>         exitCode;
   boost::process::child    tst( settings.testScript,
                                 boost::process::args(args),
                                 boost::process::std_in.close(),
                                 boost::process::std_out > outstr,
                                 boost::process::std_err > errstr,
+                                boost::process::on_exit = exitCode,
                                 ios
                               );
 
@@ -303,16 +314,17 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
     res.emplace_back(std::move(line));
 */
 
+  const bool success = exitCode.get() == 0;
+
   std::string outs = outstr.get();
   std::string errs = errstr.get();
 
   std::cout << outs << std::endl;
   std::cerr << errs << std::endl;
 
-  return { tst.native_exit_code() == 0, testScore(outs) };
+  std::cerr << "success(test): " << success << std::endl;
+  return { success, testScore(outs) };
 }
-
-
 
 
 std::string loadCodeQuery(const std::string& output, const std::string& filename)
@@ -691,7 +703,6 @@ Settings loadConfig(const std::string& configFileName)
     config.optreport    = loadField(cnfobj, "optreport",    config.optreport);
     config.optcompile   = loadField(cnfobj, "optcompile",   config.optcompile);
     config.justResponse = loadField(cnfobj, "justResponse", config.justResponse);
-    config.justCompile  = loadField(cnfobj, "justCompile",  config.justCompile);
     config.queryFile    = loadField(cnfobj, "queryFile",    config.queryFile);
     config.responseFile = loadField(cnfobj, "responseFile", config.responseFile);
     config.testScript   = loadField(cnfobj, "testScript",   config.testScript);
@@ -712,15 +723,6 @@ Settings loadConfig(const std::string& configFileName)
   }
 
   settings.justResponse = settings.responseFile.ends_with(".json");
-
-  if (settings.justResponse & settings.justCompile)
-  {
-    std::cerr << "only justResponse or justCompile can be set."
-              << std::endl;
-
-    exit(1);
-  }
-
   return settings;
 }
 
@@ -746,9 +748,9 @@ void createDefaultConfig(const std::string& configFileName)
       << "\n  \"optreport\":\""    << defaults.optreport << "\","
       << "\n  \"optcompile\":\""   << defaults.optcompile << "\","
       << "\n  \"justResponse\":"   << as_string(defaults.justResponse) << ","
-      << "\n  \"justCompile\":"    << as_string(defaults.justCompile) << ","
       << "\n  \"queryFile\":\""    << defaults.queryFile << "\","
-      << "\n  \"responseFile\":\"" << defaults.responseFile << "\""
+      << "\n  \"responseFile\":\"" << defaults.responseFile << "\"" << ","
+      << "\n  \"iterations\":"     << defaults.iterations
       << "\n}" << std::endl;
 }
 
@@ -759,7 +761,11 @@ struct CmdLineProc
   {
     if (arg.rfind(phelp) != std::string::npos)
       opts.help = true;
-    if (arg.rfind(pcreateconfig) != std::string::npos)
+    else if (arg.rfind(phelp2) != std::string::npos)
+      opts.help = true;
+    else if (arg.rfind(phelp3) != std::string::npos)
+      opts.help = true;
+    else if (arg.rfind(pcreateconfig) != std::string::npos)
       opts.createConfig = true;
     else if (arg.rfind(pconfig) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
@@ -774,12 +780,16 @@ struct CmdLineProc
   CmdLineArgs opts;
 
   static std::string phelp;
+  static std::string phelp2;
+  static std::string phelp3;
   static std::string pcreateconfig;
   static std::string pconfig;
   static std::string pharness;
 };
 
 std::string CmdLineProc::phelp         = "--help";
+std::string CmdLineProc::phelp2        = "-help";
+std::string CmdLineProc::phelp3        = "-h";
 std::string CmdLineProc::pcreateconfig = "--create-config";
 std::string CmdLineProc::pconfig       = "--config=";
 std::string CmdLineProc::pharness      = "--harness-param=";
@@ -803,7 +813,10 @@ struct Revision : RevisionBase
 std::string
 qualityText(const std::vector<Revision>& variants)
 {
-  assert(variants.size() > 2);
+  assert(!variants.empty());
+
+  if (variants.size() == 1)
+    return "initial result";
 
   int               el   = variants.size() - 1;
   const long double curr = variants[el].result().score();
@@ -850,34 +863,50 @@ int main(int argc, char** argv)
     return 0;
   }
 
-  Settings          settings = loadConfig(cmdlnargs.configFileName);
-  //~ CompilationResult compres{"", true};
-  CompilationResult compres  = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args);
+  Settings          settings   = loadConfig(cmdlnargs.configFileName);
+  CompilationResult compres    = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args);
+  int               iterations = settings.iterations;
+
+  std::cerr << "compiled " << compres.success() << std::endl;
 
   if (!compres.success())
   {
     std::cerr << "Input file does not compile: \n"
               << compres.output()
               << std::endl;
+
+    // do we really need to exit; maybe compiler GPT can fix the output..
     exit(1);
   }
 
-  if (settings.justCompile) return 0;
-
-
-  json::value           query      = initialPrompt( settings,
-                                                    std::move(compres.output()),
-                                                    cmdlnargs.args.back()
-                                                  );
-  int                   iterations = settings.iterations;
   std::vector<Revision> variants;
 
   variants.emplace_back( cmdlnargs.args.back(),
                          invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness)
                        );
 
+  if (!variants.back().result().success())
+  {
+    std::cerr << "warning: baseline test failed!" << std::endl;
+    exit(1);
+  }
+
+  // initial prompt
+  json::value           query;
+
+  std::cerr << "iterations = " << iterations << std::endl;
+
+  if (iterations > 0)
+  {
+    query = initialPrompt( settings, std::move(compres.output()), cmdlnargs.args.back());
+  }
+
   while (iterations > 0)
   {
+    --iterations;
+
+    const bool promptAI = iterations != 0;
+
     storeQuery(settings, query);
     invokeAI(settings);
 
@@ -899,27 +928,50 @@ int main(int argc, char** argv)
                   << qualityText(variants) << "."
                   << std::endl;
 
-        // \todo add quality assessment to prompt
-        query = appendSuccessPrompt(std::move(query), compres.output(), variants.back().fileName());
+        if (promptAI)
+        {
+          // \todo add quality assessment to prompt
+          query = appendSuccessPrompt(std::move(query), compres.output(), variants.back().fileName());
+        }
       }
       else
       {
         std::cerr << "Compiled but regression test failed... " << std::endl;
-        // what can we do here?
+
+        if (promptAI)
+        {
+          // what can we do here?
+          const std::string regressionFailure = "This version failed the regression tests. Try again.\n";
+
+          query = appendFailurePrompt(std::move(query), regressionFailure, variants.back().fileName());
+        }
       }
     }
     else
     {
       // ask to correct the code
-      std::cerr << "Generated code did not compile" << std::endl;
+      std::cerr << "Generated code did not compile." << std::endl;
 
       variants.emplace_back( newFile, TestResult{false, nanValue<long double>()} );
 
-      query = appendFailurePrompt(std::move(query), compres.output(), variants.back().fileName());
-    }
+      if (promptAI)
+      {
+        std::string compilerFailure = "This code did not compile. Here are the error messages, try again.\n";
 
-    --iterations;
+        compilerFailure += compres.output();
+
+        query = appendFailurePrompt(std::move(query), compilerFailure, variants.back().fileName());
+      }
+    }
   }
+
+  //
+  // prepare final report
+
+  // store query and results for review
+  storeQuery(settings, query);
+
+  // go over results and rank them based on success and results
 
   return 0;
 }
