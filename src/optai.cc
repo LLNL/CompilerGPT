@@ -52,16 +52,18 @@ const char* usage = "usage: optai switches c++file.cc"
 
 struct Settings
 {
-  std::string  invokeai     = "./scripts/gpt4/execquery.sh";
-  std::string  optcompiler  = "/usr/bin/clang";
-  std::string  optreport    = "-Rpass-missed=.";
-  std::string  optcompile   = "-c";
-  std::string  queryFile    = "query.json";
-  std::string  responseFile = "response.txt";
-  std::string  testScript   = "";
-  bool         justResponse = false;
-  bool         jsonResponse = false;
-  std::int64_t iterations   = 1;
+  std::string  invokeai      = "./scripts/gpt4/execquery.sh";
+  std::string  optcompiler   = "/usr/bin/clang";
+  std::string  optreport     = "-Rpass-missed=.";
+  std::string  optcompile    = "-c";
+  std::string  queryFile     = "query.json";
+  std::string  responseFile  = "response.txt";
+  std::string  testScript    = "";
+  std::string  initialPrompt = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
+
+  bool         justResponse  = false;
+  bool         jsonResponse  = false;
+  std::int64_t iterations    = 1;
 };
 
 struct CmdLineArgs
@@ -135,6 +137,15 @@ struct CompilationResult : CompilationResultBase
   bool               success() const { return std::get<1>(*this); }
 };
 
+void splitArgs(const std::string& s, std::vector<std::string>& args)
+{
+  std::istringstream all{s};
+  std::string        arg;
+
+  while (all >> arg)
+    args.emplace_back(std::move(arg));
+}
+
 
 CompilationResult
 invokeCompiler(const Settings& settings, std::vector<std::string> args)
@@ -142,8 +153,8 @@ invokeCompiler(const Settings& settings, std::vector<std::string> args)
   std::string src = std::move(args.back());
   args.pop_back();
 
-  args.push_back(settings.optreport);
-  args.push_back(settings.optcompile);
+  splitArgs(settings.optreport, args);
+  splitArgs(settings.optcompile, args);
   args.push_back(src);
 
   std::cerr << "compile: " << settings.optcompiler << range(args) << std::endl;
@@ -269,6 +280,11 @@ struct TestResult : TestResultBase
   long double score()   const { return std::get<1>(*this); }
 };
 
+std::ostream& operator<<(std::ostream& os, const TestResult& res)
+{
+  return os << as_string(res.success()) << "  score: " << res.score();
+}
+
 
 TestResult
 invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
@@ -327,7 +343,7 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 }
 
 
-std::string loadCodeQuery(const std::string& output, const std::string& filename)
+std::string loadCodeQuery(const Settings& settings, const std::string& output, const std::string& filename)
 {
   std::stringstream txt;
   std::ifstream     src{filename};
@@ -341,8 +357,8 @@ std::string loadCodeQuery(const std::string& output, const std::string& filename
 
   txt << CC_MARKER_LIMIT << '\n'
       << "Clang produces the optimization report:\n"
-      << output
-      << "\nPrioritize the optimizations and rewrite the code to enable better compiler optimizations.\n"
+      << output << '\n'
+      << settings.initialPrompt << '\n'
       << std::flush;
 
   return txt.str();
@@ -401,7 +417,7 @@ json::value initialPrompt(const Settings& settings, std::string output, std::str
     json::object q;
 
     q["role"]    = "user";
-    q["content"] = loadCodeQuery(output, filename);
+    q["content"] = loadCodeQuery(settings, output, filename);
 
     res.emplace_back(std::move(q));
   }
@@ -698,15 +714,16 @@ Settings loadConfig(const std::string& configFileName)
     json::object& cnfobj = cnf.as_object();
     Settings      config;
 
-    config.invokeai     = loadField(cnfobj, "invokeai",     config.invokeai);
-    config.optcompiler  = loadField(cnfobj, "optcompiler",  config.optcompiler);
-    config.optreport    = loadField(cnfobj, "optreport",    config.optreport);
-    config.optcompile   = loadField(cnfobj, "optcompile",   config.optcompile);
-    config.justResponse = loadField(cnfobj, "justResponse", config.justResponse);
-    config.queryFile    = loadField(cnfobj, "queryFile",    config.queryFile);
-    config.responseFile = loadField(cnfobj, "responseFile", config.responseFile);
-    config.testScript   = loadField(cnfobj, "testScript",   config.testScript);
-    config.iterations   = loadField(cnfobj, "iterations",   config.iterations);
+    config.invokeai      = loadField(cnfobj, "invokeai",      config.invokeai);
+    config.optcompiler   = loadField(cnfobj, "optcompiler",   config.optcompiler);
+    config.optreport     = loadField(cnfobj, "optreport",     config.optreport);
+    config.optcompile    = loadField(cnfobj, "optcompile",    config.optcompile);
+    config.justResponse  = loadField(cnfobj, "justResponse",  config.justResponse);
+    config.queryFile     = loadField(cnfobj, "queryFile",     config.queryFile);
+    config.responseFile  = loadField(cnfobj, "responseFile",  config.responseFile);
+    config.testScript    = loadField(cnfobj, "testScript",    config.testScript);
+    config.initialPrompt = loadField(cnfobj, "initialPrompt", config.initialPrompt);
+    config.iterations    = loadField(cnfobj, "iterations",    config.iterations);
 
     settings = std::move(config);
   }
@@ -743,14 +760,16 @@ void createDefaultConfig(const std::string& configFileName)
   // print pretty json by hand, as boost does not pretty print by default.
   // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
   ofs << "{"
-      << "\n  \"invokeai\":\""     << defaults.invokeai << "\","
-      << "\n  \"optcompiler\":\""  << defaults.optcompiler << "\","
-      << "\n  \"optreport\":\""    << defaults.optreport << "\","
-      << "\n  \"optcompile\":\""   << defaults.optcompile << "\","
-      << "\n  \"justResponse\":"   << as_string(defaults.justResponse) << ","
-      << "\n  \"queryFile\":\""    << defaults.queryFile << "\","
-      << "\n  \"responseFile\":\"" << defaults.responseFile << "\"" << ","
-      << "\n  \"iterations\":"     << defaults.iterations
+      << "\n  \"invokeai\":\""      << defaults.invokeai << "\","
+      << "\n  \"optcompiler\":\""   << defaults.optcompiler << "\","
+      << "\n  \"optreport\":\""     << defaults.optreport << "\","
+      << "\n  \"optcompile\":\""    << defaults.optcompile << "\","
+      << "\n  \"justResponse\":"    << as_string(defaults.justResponse) << ","
+      << "\n  \"queryFile\":\""     << defaults.queryFile << "\","
+      << "\n  \"responseFile\":\""  << defaults.responseFile << "\"" << ","
+      << "\n  \"testScript\":\""    << defaults.testScript << "\"" << ","
+      << "\n  \"initialPrompt\":\"" << defaults.initialPrompt << "\"" << ","
+      << "\n  \"iterations\":"      << defaults.iterations
       << "\n}" << std::endl;
 }
 
@@ -809,6 +828,12 @@ struct Revision : RevisionBase
   const std::string& fileName() const { return std::get<0>(*this); }
   const TestResult&  result()   const { return std::get<1>(*this); }
 };
+
+std::ostream& operator<<(std::ostream& os, const Revision& rev)
+{
+  return os << rev.fileName() << ": " << rev.result();
+}
+
 
 std::string
 qualityText(const std::vector<Revision>& variants)
@@ -970,6 +995,9 @@ int main(int argc, char** argv)
 
   // store query and results for review
   storeQuery(settings, query);
+
+  for (const Revision& r : variants)
+    std::cout << r << std::endl;
 
   // go over results and rank them based on success and results
 

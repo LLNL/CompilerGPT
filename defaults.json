@@ -6,5 +6,7 @@
   "justResponse":false,
   "queryFile":"query.json",
   "responseFile":"response.txt",
+  "testScript":"",
+  "initialPrompt":"Prioritize the optimizations and rewrite the code to enable better compiler optimizations.",
   "iterations":1
 }
