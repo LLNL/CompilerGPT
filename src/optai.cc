@@ -61,8 +61,8 @@ struct Settings
   std::string  testScript    = "";
   std::string  initialPrompt = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
 
-  bool         justResponse  = false;
   bool         jsonResponse  = false;
+  bool         useOptReport  = true;
   std::int64_t iterations    = 1;
 };
 
@@ -355,10 +355,15 @@ std::string loadCodeQuery(const Settings& settings, const std::string& output, c
     txt << line << "\n";
   }
 
-  txt << CC_MARKER_LIMIT << '\n'
-      << "Clang produces the optimization report:\n"
-      << output << '\n'
-      << settings.initialPrompt << '\n'
+  txt << CC_MARKER_LIMIT << '\n';
+
+  if (settings.useOptReport)
+  {
+    txt << settings.optcompiler << "Clang produces the optimization report:\n"
+        << output << '\n';
+  }
+
+  txt << settings.initialPrompt << '\n'
       << std::flush;
 
   return txt.str();
@@ -426,16 +431,26 @@ json::value initialPrompt(const Settings& settings, std::string output, std::str
 }
 
 json::value
-appendSuccessPrompt(json::value val, std::string output, std::string /*filename*/)
+appendSuccessPrompt(const Settings& settings, json::value val, std::string output, std::string /*filename*/)
 {
   json::array&      res = val.as_array();
   json::object      q;
   std::stringstream txt;
 
-  txt << "The previous code works. Following is the current Clang optimization report:\n"
-      << output
-      << "\nPrioritize the optimizations and rewrite the code to enable better compiler optimizations.\n"
-      << std::flush;
+  txt << "The previous code works.\n";
+
+  if (settings.useOptReport)
+  {
+    txt << "Following is the current Clang optimization report:\n"
+        << output
+        << "\nPrioritize the optimizations and rewrite the code to enable better compiler optimizations.\n";
+  }
+  else
+  {
+    txt << "Optimize the code further.\n";
+  }
+
+  txt << std::flush;
 
   q["role"]    = "user";
   q["content"] = txt.str();
@@ -512,7 +527,6 @@ readJsonFile(std::istream& is)
 
   while (std::getline(is, line))
   {
-    std::cerr << line << std::endl;
     p.write(line, ec);
 
     if (ec)
@@ -718,11 +732,11 @@ Settings loadConfig(const std::string& configFileName)
     config.optcompiler   = loadField(cnfobj, "optcompiler",   config.optcompiler);
     config.optreport     = loadField(cnfobj, "optreport",     config.optreport);
     config.optcompile    = loadField(cnfobj, "optcompile",    config.optcompile);
-    config.justResponse  = loadField(cnfobj, "justResponse",  config.justResponse);
     config.queryFile     = loadField(cnfobj, "queryFile",     config.queryFile);
     config.responseFile  = loadField(cnfobj, "responseFile",  config.responseFile);
     config.testScript    = loadField(cnfobj, "testScript",    config.testScript);
     config.initialPrompt = loadField(cnfobj, "initialPrompt", config.initialPrompt);
+    config.useOptReport  = loadField(cnfobj, "useOptReport",  config.useOptReport);
     config.iterations    = loadField(cnfobj, "iterations",    config.iterations);
 
     settings = std::move(config);
@@ -739,8 +753,25 @@ Settings loadConfig(const std::string& configFileName)
               << std::endl;
   }
 
-  settings.justResponse = settings.responseFile.ends_with(".json");
   return settings;
+}
+
+void writeSettings(std::ostream& os, const Settings& settings)
+{
+  // print pretty json by hand, as boost does not pretty print by default.
+  // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
+  os << "{"
+     << "\n  \"invokeai\":\""      << settings.invokeai << "\","
+     << "\n  \"optcompiler\":\""   << settings.optcompiler << "\","
+     << "\n  \"optreport\":\""     << settings.optreport << "\","
+     << "\n  \"optcompile\":\""    << settings.optcompile << "\","
+     << "\n  \"queryFile\":\""     << settings.queryFile << "\","
+     << "\n  \"responseFile\":\""  << settings.responseFile << "\"" << ","
+     << "\n  \"testScript\":\""    << settings.testScript << "\"" << ","
+     << "\n  \"initialPrompt\":\"" << settings.initialPrompt << "\"" << ","
+     << "\n  \"useOptReport\":"    << as_string(settings.useOptReport) << ","
+     << "\n  \"iterations\":"      << settings.iterations
+     << "\n}" << std::endl;
 }
 
 void createDefaultConfig(const std::string& configFileName)
@@ -757,20 +788,7 @@ void createDefaultConfig(const std::string& configFileName)
   std::ofstream ofs(configFileName);
   Settings      defaults;
 
-  // print pretty json by hand, as boost does not pretty print by default.
-  // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
-  ofs << "{"
-      << "\n  \"invokeai\":\""      << defaults.invokeai << "\","
-      << "\n  \"optcompiler\":\""   << defaults.optcompiler << "\","
-      << "\n  \"optreport\":\""     << defaults.optreport << "\","
-      << "\n  \"optcompile\":\""    << defaults.optcompile << "\","
-      << "\n  \"justResponse\":"    << as_string(defaults.justResponse) << ","
-      << "\n  \"queryFile\":\""     << defaults.queryFile << "\","
-      << "\n  \"responseFile\":\""  << defaults.responseFile << "\"" << ","
-      << "\n  \"testScript\":\""    << defaults.testScript << "\"" << ","
-      << "\n  \"initialPrompt\":\"" << defaults.initialPrompt << "\"" << ","
-      << "\n  \"iterations\":"      << defaults.iterations
-      << "\n}" << std::endl;
+  writeSettings(ofs, defaults);
 }
 
 
@@ -889,6 +907,11 @@ int main(int argc, char** argv)
   }
 
   Settings          settings   = loadConfig(cmdlnargs.configFileName);
+
+  std::cout << "Settings: ";
+  writeSettings(std::cout, settings);
+  std::cout << std::endl;
+
   CompilationResult compres    = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args);
   int               iterations = settings.iterations;
 
@@ -956,7 +979,7 @@ int main(int argc, char** argv)
         if (promptAI)
         {
           // \todo add quality assessment to prompt
-          query = appendSuccessPrompt(std::move(query), compres.output(), variants.back().fileName());
+          query = appendSuccessPrompt(settings, std::move(query), compres.output(), variants.back().fileName());
         }
       }
       else

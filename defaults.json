@@ -3,10 +3,10 @@
   "optcompiler":"/usr/bin/clang",
   "optreport":"-Rpass-missed=.",
   "optcompile":"-c",
-  "justResponse":false,
   "queryFile":"query.json",
   "responseFile":"response.txt",
   "testScript":"",
   "initialPrompt":"Prioritize the optimizations and rewrite the code to enable better compiler optimizations.",
+  "useOptReport":true,
   "iterations":1
 }
