@@ -6,7 +6,7 @@
   "queryFile":"query.json",
   "responseFile":"response.txt",
   "testScript":"./perftest.sh",
-  "initialPrompt":"Given the optimization report, revise and optimize the body of 'operator*'. Do not change the struct SimpleMatrix.",
+  "initialPrompt":"Given the optimization report, revise and optimize the body of 'operator*'. Do not change the struct SimpleMatrix, and do not create a main function.",
   "useOptReport":true,
   "iterations":10
 }
