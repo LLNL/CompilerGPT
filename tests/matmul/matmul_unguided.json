@@ -6,7 +6,12 @@
   "queryFile":"query.json",
   "responseFile":"response.txt",
   "testScript":"./perftest.sh",
-  "initialPrompt":"Revise and optimize the body of 'operator*'. Do not change the struct SimpleMatrix, and do not create a main function.",
-  "useOptReport":false,
+  "contextMessage":"You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.",
+  "onePromptTask":"Consider the following input code in C++: ",
+  "onePromptSteps":"Task: Rewrite the code to improve performance.",
+  "compFailPrompt":"This code did not compile. Here are the error messages, try again.",
+  "testFailPrompt":"This version failed the regression tests. Try again.",
+  "useOptReport":true,
+  "stopOnSuccess":false,
   "iterations":10
 }

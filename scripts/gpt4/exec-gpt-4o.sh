@@ -6,7 +6,7 @@ fi
 
 dir=`dirname $0`
 
-query=`realpath $dir/query-gpt-4-turbo.py`
+query=`readlink -e $dir/query-gpt-4o.py`
 
 echo "$query"
 python3 "$query"

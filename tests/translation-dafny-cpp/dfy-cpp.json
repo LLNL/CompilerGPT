@@ -1,0 +1,17 @@
+{
+  "invokeai":"../../scripts/gpt4/exec-gpt-4o.sh",
+  "optcompiler":"",
+  "queryFile":"query.json",
+  "responseFile":"response.txt",
+  "testScript":"./compiletest.sh",
+  "inputLang":"",
+  "outputLang":"cpp",
+  "newFileExt":".cc",
+  "contextMessage":"You are an expert AI assistant that writes Dafny and C++ programs. You are very good at writing verifiable correct code in terms of preconditions and postconditions of methods and at finding the appropriate loop invariants for the pre/postconditions to hold.",
+  "onePromptTask":"TASK: Convert the following program in Dafny to C++",
+  "onePromptSteps":"Step 1: Convert the program along with the assertions to C++.\nStep 2: Identify the conditions under which the C++ program may fail.\nStep 3: Add appropriate assumptions and assertions to the code to ensure the program is correct and handles potential bugs and vulnerabilities possible in a C++ program\nStep 4: Only output the final code, do not generate a main function.",
+  "testFailPrompt":"The code did not compile. Try again.",
+  "useOptReport":false,
+  "stopOnSuccess":true,
+  "iterations":10
+}

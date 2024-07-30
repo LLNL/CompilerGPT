@@ -6,7 +6,7 @@ fi
 
 dir=`dirname $0`
 
-query=`readlink -e $dir/openaiquery.py`
+query=`readlink -e $dir/query-gpt-4-turbo.py`
 
 echo "$query"
 python3 "$query"

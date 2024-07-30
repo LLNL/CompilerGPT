@@ -13,10 +13,11 @@ print(msgarr)
 
 print("Ask our friend GPT:")
 completion = client.chat.completions.create(
-  model="gpt-4-turbo",
-  # ~ model="gpt-3.5-turbo",
+  model="gpt-4o",
+  #~ model="gpt-4-turbo",
+  #~ model="gpt-3.5-turbo",
   messages=msgarr
-  # ~ response_format={ "type" : "json_object" }
+  #~ response_format={ "type" : "json_object" }
 )
 
 
