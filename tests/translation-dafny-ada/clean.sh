@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-rm -f *.adb *.ali nohup.out response.txt
+rm -f Clover*.adb *.ali *.o nohup.out response.txt Clover*.json *.old

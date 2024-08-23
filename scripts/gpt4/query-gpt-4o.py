@@ -22,5 +22,5 @@ completion = client.chat.completions.create(
 
 
 with open("response.txt", "w") as outf:
-  print(completion.choices[0].message, file=outf)
+  print(completion.choices[0].message.content, file=outf)
   # ~ json.dump(completion.choices[0], outf)

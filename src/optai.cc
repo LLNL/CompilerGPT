@@ -85,10 +85,12 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n"
                          "\nPrompting:"
                          "\n  contextMessage a string for setting the context/role in the AI communication."
-                         "\n  onePromptTask  a string for the initial prompt (onePromptTask code onePromptSteps)"
-                         "\n  onePromptSteps a string for the initial prompt (onePromptTask code onePromptSteps)"
-                         "\n  compFailPrompt a string when the AI generated code does not compile"
-                         "\n  testFailPrompt a string when the AI generated code produces errors with the test harness."
+                         "\n  onePromptTask  a string for the initial prompt (onePromptTask code onePromptSteps)."
+                         "\n  onePromptSteps a string for the initial prompt (onePromptTask code onePromptSteps)."
+                         "\n  compFailPrompt a string when the AI generated code does not compile (compFailPrompt compileErrors compFailSteps)."
+                         "\n  compFailSteps  a string when the AI generated code does not compile (compFailPrompt compileErrors compFailSteps)."
+                         "\n  testFailPrompt a string when the AI generated code produces errors with the test harness (testFailPrompt eval testFailPSteps)"
+                         "\n  testFailSteps  a string when the AI generated code produces errors with the test harness (testFailPrompt eval testFailPSteps)"
                          "\n"
                          "\nIteration control:"
                          "\n  iterations     integer number specifying the maximum number of iterations."
@@ -114,8 +116,10 @@ struct Settings
   std::string  contextMessage  = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
   std::string  onePromptTask   = "Consider the following input code in C++:\n";
   std::string  onePromptSteps  = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
-  std::string  compFailPrompt  = "This code did not compile. Here are the error messages, try again.\n";
-  std::string  testFailPrompt  = "This version failed the regression tests. Try again.\n";
+  std::string  compFailPrompt  = "This code did not compile. Here are the error messages:\n";
+  std::string  compFailSteps   = "Try again\n";
+  std::string  testFailPrompt  = "This version failed the regression tests. Here is the evaluation: \n";
+  std::string  testFailSteps   = "Try again.\n";
 
   bool         jsonResponse    = false;
   bool         useOptReport    = true;
@@ -261,7 +265,7 @@ compileResult(const Settings& settings, std::string newFile, std::vector<std::st
 
 bool invokeAI(const Settings& settings)
 {
-  std::cerr << "askAI: " << settings.invokeai << std::endl;
+  std::cerr << "CallAI: " << settings.invokeai << std::endl;
 
   std::vector<std::string> noargs;
   boost::asio::io_service  ios;
@@ -294,7 +298,7 @@ bool invokeAI(const Settings& settings)
   std::cerr << errstr.get() << std::endl;
 
   const bool success = exitCode.get() == 0;
-  std::cerr << "success (askAI): " << success << std::endl;
+  std::cerr << "success (CallAI): " << success << std::endl;
 
   return success;
 }
@@ -305,8 +309,10 @@ F nanValue() { return std::numeric_limits<F>::quiet_NaN(); }
 /// reads the string s and returns the numeric value of the last
 ///   non-empty line.
 long double
-testScore(std::string_view s)
+testScore(bool success, std::string_view s)
 {
+  if (!success) return nanValue<long double>();
+
   std::size_t       beg = 0;
   std::size_t       pos = s.find('\n', beg);
   std::string_view  line;
@@ -408,7 +414,7 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
   std::cerr << errs << std::endl;
 
   std::cerr << "success(test): " << success << std::endl;
-  return { success, testScore(outs), std::move(errs) };
+  return { success, testScore(success, outs), std::move(errs) };
 }
 
 
@@ -440,6 +446,10 @@ std::string loadCodeQuery(const Settings& settings, const std::string& output, c
 
 json::value initialPrompt(const Settings& settings, std::string output, std::string filename)
 {
+  // do not generate a prompt in this case
+  if (settings.iterations == 0)
+    return {};
+
   json::array res;
 
   if (settings.jsonResponse)
@@ -835,7 +845,9 @@ Settings loadConfig(const std::string& configFileName)
     config.onePromptTask   = loadField(cnfobj, "onePromptTask",   config.onePromptTask);
     config.onePromptSteps  = loadField(cnfobj, "onePromptSteps",  config.onePromptSteps);
     config.compFailPrompt  = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
+    config.compFailSteps   = loadField(cnfobj, "compFailSteps",   config.compFailSteps);
     config.testFailPrompt  = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
+    config.testFailSteps   = loadField(cnfobj, "testFailSteps",   config.testFailSteps);
     config.contextMessage  = loadField(cnfobj, "contextMessage",  config.contextMessage);
     config.useOptReport    = loadField(cnfobj, "useOptReport",    config.useOptReport);
     config.stopOnSuccess   = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
@@ -877,7 +889,9 @@ void writeSettings(std::ostream& os, const Settings& settings)
      << "\n  \"onePromptTask\":\""  << settings.onePromptTask << "\"" << ","
      << "\n  \"onePromptSteps\":\"" << settings.onePromptSteps << "\"" << ","
      << "\n  \"compFailPrompt\":\"" << settings.compFailPrompt << "\"" << ","
+     << "\n  \"compFailSteps\":\""  << settings.compFailSteps << "\"" << ","
      << "\n  \"testFailPrompt\":\"" << settings.testFailPrompt << "\"" << ","
+     << "\n  \"testFailSteps\":\""  << settings.testFailSteps << "\"" << ","
      << "\n  \"useOptReport\":"     << as_string(settings.useOptReport) << ","
      << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
      << "\n  \"iterations\":"       << settings.iterations
@@ -987,7 +1001,8 @@ qualityText(const std::vector<Revision>& variants)
     prev = variants[el].result().score();
   }
 
-  assert(!std::isnan(prev));
+  if (std::isnan(prev))
+    return "";
 
   if (std::isnan(curr))
     return " were not assessed";
@@ -1000,6 +1015,16 @@ qualityText(const std::vector<Revision>& variants)
 
   return " stayed the same";
 }
+
+Revision
+initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
+{
+  if (settings.inputLang != settings.outputLang)
+    return { cmdlnargs.args.back(), TestResult{false, nanValue<long double>(), "test harness not run (inputLang != outputLang)"} };
+
+  return { cmdlnargs.args.back(), invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness) };
+}
+
 
 
 int main(int argc, char** argv)
@@ -1049,22 +1074,10 @@ int main(int argc, char** argv)
     exit(1);
   }
 
-  std::vector<Revision> variants;
-
-  variants.emplace_back( cmdlnargs.args.back(),
-                         invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness)
-                       );
-
-  if (!variants.back().result().success())
-    std::cerr << "warning: baseline test failed!" << std::endl;
+  std::vector<Revision> variants{ initialAssessment(settings, cmdlnargs) };
 
   // initial prompt
-  json::value           query;
-
-  std::cerr << "iterations = " << iterations << std::endl;
-
-  if (iterations > 0)
-    query = initialPrompt( settings, std::move(compres.output()), cmdlnargs.args.back());
+  json::value           query = initialPrompt( settings, std::move(compres.output()), cmdlnargs.args.back() );
 
   while (iterations > 0)
   {
@@ -1109,10 +1122,11 @@ int main(int argc, char** argv)
 
         if (promptAI)
         {
-          // \todo append output here..
           std::string prompt = settings.testFailPrompt;
 
           prompt += variants.back().result().errors();
+          prompt += settings.testFailSteps;
+
           query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
         }
       }
@@ -1129,6 +1143,8 @@ int main(int argc, char** argv)
         std::string prompt = settings.compFailPrompt;
 
         prompt += compres.output();
+        prompt += settings.compFailSteps;
+
         query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
       }
     }
