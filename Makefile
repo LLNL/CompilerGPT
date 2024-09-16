@@ -8,14 +8,10 @@ ifeq ($(BUILD_TYPE),debug)
 endif
 
 
-BINARY  := optai.bin
-HEADERS :=
-SOURCES := $(BINARY:.bin=.cc)
-OBJECTS := $(SOURCES:.cc=.o)
-
-EXAMPLES :=
-
-EXAMPLES_BIN := $(EXAMPLES:.cc=.bin)
+BINARIES := optai.bin logfilter.bin
+HEADERS  :=
+SOURCES  := $(BINARY:.bin=.cc)
+OBJECTS  := $(SOURCES:.cc=.o)
 
 INCLUDES   ?= -I$(BOOST_HOME)/include -I./include
 #~ BOOSTLIBS  ?= -L$(BOOST_HOME)/lib -lboost_filesystem # -lboost_system -lboost_thread
@@ -30,7 +26,7 @@ CXXFLAGS   := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG) -pthrea
 $(info $(OBJECTS))
 
 .phony: default
-default: $(BINARY)
+default: $(BINARIES)
 
 %.o: src/%.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DLLFLAG) -o $@ -c $<

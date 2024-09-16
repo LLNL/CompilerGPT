@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 if [[ -n "${OPENAI_ENV_DIR}" ]]; then
   source "$OPENAI_ENV_DIR/bin/activate"
 fi

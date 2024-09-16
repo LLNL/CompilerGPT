@@ -7,6 +7,7 @@
 #include <boost/process.hpp>
 //~ #include <boost/filesystem.hpp>
 #include <boost/json/src.hpp>
+#include <boost/algorithm/string.hpp>
 
 #include <filesystem>
 
@@ -263,7 +264,7 @@ compileResult(const Settings& settings, std::string newFile, std::vector<std::st
   return invokeCompiler(settings, args);
 }
 
-bool invokeAI(const Settings& settings)
+void invokeAI(const Settings& settings)
 {
   std::cerr << "CallAI: " << settings.invokeai << std::endl;
 
@@ -297,10 +298,11 @@ bool invokeAI(const Settings& settings)
   std::cout << outstr.get() << std::endl;
   std::cerr << errstr.get() << std::endl;
 
-  const bool success = exitCode.get() == 0;
-  std::cerr << "success (CallAI): " << success << std::endl;
+  const int  ec      = exitCode.get();
 
-  return success;
+  std::cerr << "CallAI - exitcode: " << ec << std::endl;
+
+  if (ec != 0) throw std::runtime_error{"AI invocation error."};
 }
 
 template <class F>
@@ -691,12 +693,17 @@ storeGeneratedFile( const Settings& settings,
 
   char last = ' ';
 
-  // print to file while replacing "\\n" with "\n".
+  // print to file while handling escaped characters
   for (char ch : code)
   {
     if ((last == '\\') && (ch == 'n'))
     {
       outf << "\n";
+      last = ' ';
+    }
+    else if ((last == '\\') && (ch == '\\'))
+    {
+      outf << '\\';
       last = ' ';
     }
     else if ((last == '\\') && (ch == '\''))
@@ -823,11 +830,19 @@ std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
 
 Settings loadConfig(const std::string& configFileName)
 {
-  Settings settings;
+  Settings      settings;
+  std::ifstream configFile{configFileName};
+
+  if (!configFile.good())
+  {
+    std::cerr << "The file " << configFileName << " is NOT ACCESSIBLE (or does not exist.)"
+              << "\n  => Using default values."
+              << std::endl;
+    return settings;
+  }
 
   try
   {
-    std::ifstream configFile{configFileName};
     json::value   cnf    = readJsonFile(configFile);
     json::object& cnfobj = cnf.as_object();
     Settings      config;
@@ -858,16 +873,24 @@ Settings loadConfig(const std::string& configFileName)
   catch (const std::exception& ex)
   {
     std::cerr << ex.what()
-              << "\nUsing default values."
+              << "\n  => Using default values."
               << std::endl;
   }
   catch (...)
   {
-    std::cerr << "Unknown error: Unable to read settings file. Using default values."
+    std::cerr << "Unknown error: Unable to read settings file."
+              << "\n  => Using default values."
               << std::endl;
   }
 
   return settings;
+}
+
+std::string replace_nl(std::string s)
+{
+  boost::replace_all(s, "\n", "\\n");
+
+  return s;
 }
 
 void writeSettings(std::ostream& os, const Settings& settings)
@@ -885,13 +908,13 @@ void writeSettings(std::ostream& os, const Settings& settings)
      << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
      << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
      << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
-     << "\n  \"contextMessage\":\"" << settings.contextMessage << "\"" << ","
-     << "\n  \"onePromptTask\":\""  << settings.onePromptTask << "\"" << ","
-     << "\n  \"onePromptSteps\":\"" << settings.onePromptSteps << "\"" << ","
-     << "\n  \"compFailPrompt\":\"" << settings.compFailPrompt << "\"" << ","
-     << "\n  \"compFailSteps\":\""  << settings.compFailSteps << "\"" << ","
-     << "\n  \"testFailPrompt\":\"" << settings.testFailPrompt << "\"" << ","
-     << "\n  \"testFailSteps\":\""  << settings.testFailSteps << "\"" << ","
+     << "\n  \"contextMessage\":\"" << replace_nl(settings.contextMessage) << "\"" << ","
+     << "\n  \"onePromptTask\":\""  << replace_nl(settings.onePromptTask) << "\"" << ","
+     << "\n  \"onePromptSteps\":\"" << replace_nl(settings.onePromptSteps) << "\"" << ","
+     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\"" << ","
+     << "\n  \"compFailSteps\":\""  << replace_nl(settings.compFailSteps) << "\"" << ","
+     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\"" << ","
+     << "\n  \"testFailSteps\":\""  << replace_nl(settings.testFailSteps) << "\"" << ","
      << "\n  \"useOptReport\":"     << as_string(settings.useOptReport) << ","
      << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
      << "\n  \"iterations\":"       << settings.iterations
@@ -1079,75 +1102,88 @@ int main(int argc, char** argv)
   // initial prompt
   json::value           query = initialPrompt( settings, std::move(compres.output()), cmdlnargs.args.back() );
 
-  while (iterations > 0)
+  try
   {
-    --iterations;
-
-    const bool promptAI = iterations != 0;
-
-    storeQuery(settings, query);
-    invokeAI(settings);
-
-    std::string response = loadAIResponse(settings);
-    std::string newFile  = storeGeneratedFile(settings, response, cmdlnargs.args.back());
-
-    query = appendResponse(std::move(query), response);
-    compres = compileResult(settings, newFile, cmdlnargs.args);
-
-    if (compres.success())
+    while (iterations > 0)
     {
-      variants.emplace_back( newFile,
-                             invokeTestScript(settings, newFile, cmdlnargs.harness)
-                           );
+      --iterations;
 
-      if (variants.back().result().success())
+      const bool promptAI = iterations != 0;
+
+      storeQuery(settings, query);
+      invokeAI(settings);
+
+      std::string response = loadAIResponse(settings);
+      std::string newFile  = storeGeneratedFile(settings, response, cmdlnargs.args.back());
+
+      query = appendResponse(std::move(query), response);
+      compres = compileResult(settings, newFile, cmdlnargs.args);
+
+      if (compres.success())
       {
-        std::cerr << "Compiled and tested, results "
-                  << qualityText(variants) << "."
-                  << std::endl;
+        variants.emplace_back( newFile,
+                               invokeTestScript(settings, newFile, cmdlnargs.harness)
+                             );
 
-        if (settings.stopOnSuccess)
+        if (variants.back().result().success())
         {
-          iterations = 0;
+          std::cerr << "Compiled and tested, results "
+                    << qualityText(variants) << "."
+                    << std::endl;
+
+          if (settings.stopOnSuccess)
+          {
+            iterations = 0;
+          }
+          else if (promptAI)
+          {
+            // \todo add quality assessment to prompt
+            query = appendSuccessPrompt(settings, std::move(query), compres.output(), variants.back().fileName());
+          }
         }
-        else if (promptAI)
+        else
         {
-          // \todo add quality assessment to prompt
-          query = appendSuccessPrompt(settings, std::move(query), compres.output(), variants.back().fileName());
+          std::cerr << "Compiled but test failed... " << std::endl;
+
+          if (promptAI)
+          {
+            std::string prompt = settings.testFailPrompt;
+
+            prompt += variants.back().result().errors();
+            prompt += settings.testFailSteps;
+
+            query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
+          }
         }
       }
       else
       {
-        std::cerr << "Compiled but test failed... " << std::endl;
+        // ask to correct the code
+        std::cerr << "Compilation failed..." << std::endl;
+
+        variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
 
         if (promptAI)
         {
-          std::string prompt = settings.testFailPrompt;
+          std::string prompt = settings.compFailPrompt;
 
-          prompt += variants.back().result().errors();
-          prompt += settings.testFailSteps;
+          prompt += compres.output();
+          prompt += settings.compFailSteps;
 
           query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
         }
       }
     }
-    else
-    {
-      // ask to correct the code
-      std::cerr << "Compilation failed..." << std::endl;
-
-      variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
-
-      if (promptAI)
-      {
-        std::string prompt = settings.compFailPrompt;
-
-        prompt += compres.output();
-        prompt += settings.compFailSteps;
-
-        query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
-      }
-    }
+  }
+  catch (const std::exception& ex)
+  {
+    std::cerr << "ERROR:\n" << ex.what() << "\nterminating"
+              << std::endl;
+  }
+  catch (...)
+  {
+    std::cerr << "UNKOWN ERROR:" << "\nterminating"
+              << std::endl;
   }
 
   //
