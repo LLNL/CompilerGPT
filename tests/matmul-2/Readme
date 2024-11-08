@@ -1,0 +1,5 @@
+= Tests Matrix Multiplication Optimization =
+
+Tests optimizations that are driven with incomplete code. The header file for simplematrix is not communicated to the AI.
+
+

@@ -2,12 +2,16 @@
 #include <fstream>
 #include <string>
 #include <iostream>
+#include <numeric>
+#include <charconv>
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
 //~ #include <boost/filesystem.hpp>
 #include <boost/json/src.hpp>
 #include <boost/algorithm/string.hpp>
+
+//~ #include <boost/algorithm/string/predicate.hpp>
 
 #include <filesystem>
 
@@ -37,6 +41,9 @@ const char* usage = "usage: optai switches c++file.cc"
                     "\n    --config=jsonfile config file in json format."
                     "\n                      default: jsonfile=optai.json"
                     "\n    --create-config   creates config file and exits."
+                    "\n    --create-config=p creates config file for a specified AI model, and exits."
+                    "\n                      p in {gpt4,claude}"
+                    "\n                      default: p=gpt4"
                     "\n    --harness-param=p sets an optional parameter for the test harness."
                     "\n                      default: none"
                     "\n                      If set, the parameter is passed as second"
@@ -65,7 +72,9 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n  invokeai       a string pointing to an executable (script) to call the external AI"
                          "\n  queryFile      a json file storing the conversation history. The external AI"
                          "\n                 needs to read the query from this file."
-                         "\n  responseFile   a text file where the AI stores the query response"
+                         "\n  responseFile   a file [text or json] where the AI stores the query response"
+                         "\n  responseField  a JSON path in the form of [field {'.' field} ] identifying the content."
+                         "\n                 ignored when responseFile is a text file."
                          "\n  inputLang      language delimiter for the input language. Used to generate"
                          "\n                 the initial prompt."
                          "\n  outputLang     language delimiter for the AI response."
@@ -85,7 +94,10 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n                 code passes the regression tests with a quality score of 0."
                          "\n"
                          "\nPrompting:"
-                         "\n  contextMessage a string for setting the context/role in the AI communication."
+                         "\n  systemText     a string for setting the context/role in the AI communication."
+                         "\n  systemTextFile if set optai writes the system text into a file instead of"
+                         "\n                 passing it as first message in the message list."
+                         "\n  roleOfAI       the name of the AI role in the conversation context."
                          "\n  onePromptTask  a string for the initial prompt (onePromptTask code onePromptSteps)."
                          "\n  onePromptSteps a string for the initial prompt (onePromptTask code onePromptSteps)."
                          "\n  compFailPrompt a string when the AI generated code does not compile (compFailPrompt compileErrors compFailSteps)."
@@ -104,43 +116,77 @@ const char* confighelp = "The following configuration parameters can be set in t
 
 struct Settings
 {
-  std::string  invokeai        = "./scripts/gpt4/execquery.sh";
-  std::string  optcompiler     = "/usr/bin/clang";
-  std::string  optreport       = "-Rpass-missed=.";
-  std::string  optcompile      = "-c";
-  std::string  queryFile       = "query.json";
-  std::string  responseFile    = "response.txt";
-  std::string  testScript      = "";
-  std::string  newFileExt      = "";
-  std::string  inputLang       = "cpp";
-  std::string  outputLang      = "cpp";  // same as input language if not specified
-  std::string  contextMessage  = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
-  std::string  onePromptTask   = "Consider the following input code in C++:\n";
-  std::string  onePromptSteps  = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
-  std::string  compFailPrompt  = "This code did not compile. Here are the error messages:\n";
-  std::string  compFailSteps   = "Try again\n";
-  std::string  testFailPrompt  = "This version failed the regression tests. Here is the evaluation: \n";
-  std::string  testFailSteps   = "Try again.\n";
+  std::string  invokeai       = "./scripts/gpt4/execquery.sh";
+  std::string  optcompiler    = "/usr/bin/clang";
+  std::string  optreport      = "-Rpass-missed=.";
+  std::string  optcompile     = "-c";
+  std::string  queryFile      = "query.json";
+  std::string  responseFile   = "response.txt";
+  std::string  responseField  = "";
+  std::string  testScript     = "";
+  std::string  newFileExt     = "";
+  std::string  inputLang      = "cpp";
+  std::string  outputLang     = "cpp";  // same as input language if not specified
+  std::string  systemText     = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
+  std::string  roleOfAI       = "system";
+  std::string  systemTextFile = "";
+  std::string  onePromptTask  = "Consider the following input code in C++:\n";
+  std::string  onePromptSteps = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
+  std::string  compFailPrompt = "This code did not compile. Here are the error messages:\n";
+  std::string  compFailSteps  = "Try again\n";
+  std::string  testFailPrompt = "This version failed the regression tests. Here is the evaluation: \n";
+  std::string  testFailSteps  = "Try again.\n";
 
-  bool         jsonResponse    = false;
-  bool         useOptReport    = true;
-  bool         stopOnSuccess   = false;
-  std::int64_t iterations      = 1;
+  bool         useOptReport   = true;
+  bool         stopOnSuccess  = false;
+  std::int64_t iterations     = 1;
 };
+
+Settings setupGPT4(Settings settings)
+{
+  return settings;
+}
+
+Settings setupClaude(Settings settings)
+{
+  settings.responseFile   = "response.json";
+  settings.responseField  = "content[0].text";
+  settings.systemTextFile = "system.txt";
+  settings.roleOfAI       = "assistant";
+  settings.invokeai       = "./scripts/claude/exec-claude.sh";
+
+  return settings;
+}
+
 
 struct CmdLineArgs
 {
+  enum Model { none = 0, error = 1, gpt4 = 2, claude = 3 };
+
   bool                     help              = false;
   bool                     helpConfig        = false;
-  bool                     createConfig      = false;
+  Model                    configModel       = none;
   std::string              configFileName    = "optai.json";
   std::string              harness           = "";
   std::vector<std::string> args;
 };
 
-const char* as_string(bool v)
+const char* as_string(bool v, bool align = false)
 {
-  return v ? "true" : "false";
+  if (!v) return "false";
+  if (!align) return "true";
+
+  return "true ";
+}
+
+Settings modelDefaults(CmdLineArgs::Model m)
+{
+  Settings defaults;
+
+  if (m == CmdLineArgs::gpt4)   return setupGPT4(defaults);
+  if (m == CmdLineArgs::claude) return setupClaude(defaults);
+
+  throw std::runtime_error{"Cannot configure unknown model."};
 }
 
 }
@@ -209,6 +255,110 @@ void splitArgs(const std::string& s, std::vector<std::string>& args)
     args.emplace_back(std::move(arg));
 }
 
+std::vector<std::string>
+splitString(const std::string& input, char splitch = '\n')
+{
+  std::vector<std::string> res;
+  std::size_t curr = 0;
+  std::size_t next = 0;
+
+  while ( (next = input.find(splitch, curr)) != std::string::npos )
+  {
+    res.emplace_back(input.substr(curr, next - curr));
+    curr = next + 1;
+  }
+
+  // Handle the last line if it doesn't end with a newline
+  if (curr < input.length())
+    res.emplace_back(input.substr(curr));
+
+  return res;
+}
+
+struct DiagnosticFilter
+{
+  bool isMainFile(std::string_view line) const
+  {
+    return line.find(mainFile) != std::string::npos;
+  };
+
+  void moveMessageToResult()
+  {
+    std::copy( std::make_move_iterator(pendingMessageTrace.begin()), std::make_move_iterator(pendingMessageTrace.end()),
+               std::back_inserter(res)
+             );
+
+    pendingMessageTrace.clear();
+    pendingIncludeTrace.clear();
+  }
+
+  void operator()(const std::string& s)
+  {
+    const bool isIncludeTrace = s.rfind("In file included from", 0) == 0;
+
+    if (!isIncludeTrace)
+    {
+      if (isMainFile(s))
+      {
+        if (refsMainFile)
+        {
+          moveMessageToResult();
+        }
+        else
+        {
+          pendingMessageTrace.clear();
+          refsMainFile = true;
+        }
+      }
+
+      pendingMessageTrace.push_back(s);
+    }
+    else if (pendingMessageTrace.empty())
+    {
+      pendingIncludeTrace.push_back(s);
+    }
+    else if (refsMainFile)
+    {
+      refsMainFile = false;
+
+      moveMessageToResult();
+    }
+  }
+
+  operator std::vector<std::string>() &&
+  {
+    moveMessageToResult();
+    return std::move(res);
+  }
+
+  std::string_view         mainFile;
+  bool                     refsMainFile         = false;
+  std::vector<std::string> pendingIncludeTrace  = {};
+  std::vector<std::string> pendingMessageTrace  = {};
+  std::vector<std::string> res                  = {};
+};
+
+
+std::string filterMessageOutput(const std::string& out, std::string_view filename)
+{
+  std::vector<std::string> lines = splitString(out);
+
+  lines = std::for_each(lines.begin(), lines.end(), DiagnosticFilter{filename});
+
+  return std::accumulate( lines.begin(), lines.end(),
+                          std::string{},
+                          [](std::string lhs, const std::string rhs) -> std::string
+                          {
+                            lhs += '\n';
+                            lhs += rhs;
+
+                            return lhs;
+                          }
+                        );
+}
+
+
+
 
 CompilationResult
 invokeCompiler(const Settings& settings, std::vector<std::string> args)
@@ -250,10 +400,8 @@ invokeCompiler(const Settings& settings, std::vector<std::string> args)
   const bool success = exitCode.get() == 0;
   std::cerr << "success(compile): " << success << std::endl;
 
-  return { errstr.get(), success };
+  return { filterMessageOutput(errstr.get(), args.back()), success };
 }
-
-
 
 CompilationResult
 compileResult(const Settings& settings, std::string newFile, std::vector<std::string> args)
@@ -261,7 +409,11 @@ compileResult(const Settings& settings, std::string newFile, std::vector<std::st
   args.pop_back();
   args.push_back(newFile);
 
-  return invokeCompiler(settings, args);
+  CompilationResult res = invokeCompiler(settings, args);
+
+  std::cerr << res.output() << std::endl;
+
+  return res;
 }
 
 void invokeAI(const Settings& settings)
@@ -357,11 +509,15 @@ struct TestResult : TestResultBase
   const std::string& errors()  const { return std::get<2>(*this); }
 };
 
-std::ostream& operator<<(std::ostream& os, const TestResult& res)
+struct TestResultPrinter
 {
-  return os << as_string(res.success()) << "  score: " << res.score();
-}
+  const TestResult& obj;
+};
 
+std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
+{
+  return os << as_string(el.obj.success(), true) << "  score: " << el.obj.score();
+}
 
 TestResult
 invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
@@ -454,49 +610,20 @@ json::value initialPrompt(const Settings& settings, std::string output, std::str
 
   json::array res;
 
-  if (settings.jsonResponse)
-  {
-    // for setting the output format to JSON see:
-    //   https://platform.openai.com/docs/api-reference/chat
-    //
-
-    // set output format - 1
-    // output format needs to be set in the execution script ...
-    if (false)
-    {
-      json::object line;
-      json::object response_format;
-
-      response_format["type"] = "json_object";
-      line["response_format"] = std::move(response_format);
-
-      res.emplace_back(std::move(line));
-    }
-
-    std::cerr << "json format requested: "
-              << "\n  also set response_format[\"type\"] = \"json_object\""
-              << "\n  in the driver script."
-              << std::endl;
-  }
-
+  if (settings.systemTextFile.empty())
   {
     json::object line;
 
     line["role"]    = "system";
-    line["content"] = settings.contextMessage;
+    line["content"] = settings.systemText;
 
     res.emplace_back(std::move(line));
   }
-
-  if (settings.jsonResponse)
+  else
   {
-    // set output format - 2
-    json::object line;
+    std::ofstream ofs{settings.systemTextFile};
 
-    line["role"]    = "system";
-    line["content"] = "Provide output in JSON format";
-
-    res.emplace_back(std::move(line));
+    ofs << settings.systemText;
   }
 
   {
@@ -561,12 +688,12 @@ appendFailurePrompt(json::value val, std::string output, std::string /*filename*
 
 
 json::value
-appendResponse(json::value val, std::string response)
+appendResponse(const Settings& settings, json::value val, std::string response)
 {
   json::array& res = val.as_array();
   json::object line;
 
-  line["role"]    = "system";
+  line["role"]    = settings.roleOfAI;
   line["content"] = response;
 
   res.emplace_back(std::move(line));
@@ -658,6 +785,51 @@ std::string generateNewFileName(std::string_view fileName, std::string_view newF
   return res;
 }
 
+void
+printUnescaped(std::ostream& os, std::string_view code)
+{
+  char last = ' ';
+
+  // print to os while handling escaped characters
+  for (char ch : code)
+  {
+    if (last == '\\')
+    {
+      switch (ch)
+      {
+        case 'f':  /* form feed */
+                   os << "\n\n";
+                   break;
+
+        case 'n':  os << '\n';
+                   break;
+
+        case 't':  os << "  ";
+                   break;
+
+        case 'a':  /* bell */
+        case 'v':  /* vertical tab */
+        case 'r':  /* carriage return */
+                   break;
+
+        case '\'':
+        case '"' :
+        case '?' :
+        case '\\': os << ch;
+                   break;
+
+        default:   os << last << ch;
+      }
+
+      last = ' ';
+    }
+    else if (ch == '\\')
+      last = ch;
+    else
+      os << ch;
+  }
+}
+
 
 std::string
 storeGeneratedFile( const Settings& settings,
@@ -688,45 +860,9 @@ storeGeneratedFile( const Settings& settings,
     throw std::runtime_error{"Cannot find code delimiter in AI output."};
   }
 
-  std::string_view    code = response.substr(beg, lim - beg);
-  std::ofstream       outf(newFile);
+  std::ofstream outf(newFile);
 
-  char last = ' ';
-
-  // print to file while handling escaped characters
-  for (char ch : code)
-  {
-    if ((last == '\\') && (ch == 'n'))
-    {
-      outf << "\n";
-      last = ' ';
-    }
-    else if ((last == '\\') && (ch == '\\'))
-    {
-      outf << '\\';
-      last = ' ';
-    }
-    else if ((last == '\\') && (ch == '\''))
-    {
-      outf << "'";
-      last = ' ';
-    }
-    else
-    {
-      if (last == '\\')
-      {
-        outf << last;
-        last = ' ';
-      }
-
-      if (ch == '\\')
-        last = ch;
-      else
-        outf << ch;
-    }
-  }
-
-  //~ outf << code << std::endl;
+  printUnescaped(outf, response.substr(beg, lim - beg));
   return newFile;
 }
 
@@ -756,18 +892,63 @@ readTxtFile(std::istream& is)
   return res;
 }
 
+std::string jsonField(const json::value& val, std::string_view fld)
+{
+  std::cerr << '{' << val << '}'
+            << "\n'" << fld
+            << std::endl;
+
+  if (fld.empty())
+  {
+    const json::string& content = val.as_string();
+    std::string_view    contView(content.begin(), content.size());
+
+    return std::string{contView};
+  }
+
+  if (fld[0] == '.')
+    return jsonField(val, fld.substr(1));
+
+  if (fld[0] == '[')
+  {
+    // must be an array index
+    const std::size_t   lim = fld.find_first_of("]");
+    assert((lim > 0) && (lim != std::string_view::npos));
+    std::string_view    idx = fld.substr(1, lim-1);
+    const json::array&  arr = val.as_array();
+    int                 num = 0;
+    auto                [ptr, ec] = std::from_chars(idx.data(), idx.data() + idx.size(), num);
+
+    std::cerr << "i'" << idx << " " << lim << std::endl;
+
+    if (ec != std::errc{})
+      throw std::runtime_error{"Not a valid json array index (int expected)"};
+
+    return jsonField(arr.at(num), fld.substr(lim+1));
+  }
+
+  const std::size_t pos = fld.find_first_of(".[");
+
+  if (pos == std::string_view::npos)
+  {
+    const json::object& obj = val.as_object();
+
+    return jsonField(obj.at(fld), std::string_view{});
+  }
+
+  assert(pos != 0);
+  const json::object& obj = val.as_object();
+  std::string_view    lhs = fld.substr(0, pos);
+
+  return jsonField(obj.at(lhs), fld.substr(pos));
+}
+
 
 std::string loadAIResponseJson(const Settings& settings)
 {
   std::ifstream responseFile{settings.responseFile};
 
-  json::value         obj       = readJsonFile(responseFile);
-  const json::object& jsObj     = obj.as_object();
-  const json::value&  jsContent = jsObj.at("content");
-  const json::string& content   = jsContent.as_string();
-  std::string_view    contView(content.begin(), content.size());
-
-  return std::string(contView);
+  return jsonField(readJsonFile(responseFile), settings.responseField);
 }
 
 
@@ -780,7 +961,9 @@ std::string loadAIResponseTxt(const Settings& settings)
 
 std::string loadAIResponse(const Settings& settings)
 {
-  if (settings.jsonResponse)
+  const std::string jsonSuffix{".JSON"};
+
+  if (boost::iends_with(settings.responseFile, jsonSuffix))
     return loadAIResponseJson(settings);
 
   return loadAIResponseTxt(settings);
@@ -828,6 +1011,46 @@ std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
 }
 
 
+std::string replace_nl(std::string s)
+{
+  boost::replace_all(s, "\n", "\\n");
+
+  return s;
+}
+
+
+void writeSettings(std::ostream& os, const Settings& settings)
+{
+  // print pretty json by hand, as boost does not pretty print by default.
+  // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
+  os << "{"
+     << "\n  \"invokeai\":\""       << settings.invokeai << "\","
+     << "\n  \"optcompiler\":\""    << settings.optcompiler << "\","
+     << "\n  \"optreport\":\""      << settings.optreport << "\","
+     << "\n  \"optcompile\":\""     << settings.optcompile << "\","
+     << "\n  \"queryFile\":\""      << settings.queryFile << "\","
+     << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
+     << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
+     << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
+     << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
+     << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
+     << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
+     << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
+     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
+     << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
+     << "\n  \"onePromptTask\":\""  << replace_nl(settings.onePromptTask) << "\"" << ","
+     << "\n  \"onePromptSteps\":\"" << replace_nl(settings.onePromptSteps) << "\"" << ","
+     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\"" << ","
+     << "\n  \"compFailSteps\":\""  << replace_nl(settings.compFailSteps) << "\"" << ","
+     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\"" << ","
+     << "\n  \"testFailSteps\":\""  << replace_nl(settings.testFailSteps) << "\"" << ","
+     << "\n  \"useOptReport\":"     << as_string(settings.useOptReport) << ","
+     << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
+     << "\n  \"iterations\":"       << settings.iterations
+     << "\n}" << std::endl;
+}
+
+
 Settings loadConfig(const std::string& configFileName)
 {
   Settings      settings;
@@ -847,26 +1070,29 @@ Settings loadConfig(const std::string& configFileName)
     json::object& cnfobj = cnf.as_object();
     Settings      config;
 
-    config.invokeai        = loadField(cnfobj, "invokeai",        config.invokeai);
-    config.optcompiler     = loadField(cnfobj, "optcompiler",     config.optcompiler);
-    config.optreport       = loadField(cnfobj, "optreport",       config.optreport);
-    config.optcompile      = loadField(cnfobj, "optcompile",      config.optcompile);
-    config.queryFile       = loadField(cnfobj, "queryFile",       config.queryFile);
-    config.responseFile    = loadField(cnfobj, "responseFile",    config.responseFile);
-    config.testScript      = loadField(cnfobj, "testScript",      config.testScript);
-    config.newFileExt      = loadField(cnfobj, "newFileExt",      config.newFileExt);
-    config.inputLang       = loadField(cnfobj, "inputLang",       config.inputLang);
-    config.outputLang      = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
-    config.onePromptTask   = loadField(cnfobj, "onePromptTask",   config.onePromptTask);
-    config.onePromptSteps  = loadField(cnfobj, "onePromptSteps",  config.onePromptSteps);
-    config.compFailPrompt  = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
-    config.compFailSteps   = loadField(cnfobj, "compFailSteps",   config.compFailSteps);
-    config.testFailPrompt  = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
-    config.testFailSteps   = loadField(cnfobj, "testFailSteps",   config.testFailSteps);
-    config.contextMessage  = loadField(cnfobj, "contextMessage",  config.contextMessage);
-    config.useOptReport    = loadField(cnfobj, "useOptReport",    config.useOptReport);
-    config.stopOnSuccess   = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
-    config.iterations      = loadField(cnfobj, "iterations",      config.iterations);
+    config.invokeai       = loadField(cnfobj, "invokeai",        config.invokeai);
+    config.optcompiler    = loadField(cnfobj, "optcompiler",     config.optcompiler);
+    config.optreport      = loadField(cnfobj, "optreport",       config.optreport);
+    config.optcompile     = loadField(cnfobj, "optcompile",      config.optcompile);
+    config.queryFile      = loadField(cnfobj, "queryFile",       config.queryFile);
+    config.responseFile   = loadField(cnfobj, "responseFile",    config.responseFile);
+    config.responseField  = loadField(cnfobj, "responseField",   config.responseField);
+    config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
+    config.newFileExt     = loadField(cnfobj, "newFileExt",      config.newFileExt);
+    config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
+    config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
+    config.onePromptTask  = loadField(cnfobj, "onePromptTask",   config.onePromptTask);
+    config.onePromptSteps = loadField(cnfobj, "onePromptSteps",  config.onePromptSteps);
+    config.compFailPrompt = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
+    config.compFailSteps  = loadField(cnfobj, "compFailSteps",   config.compFailSteps);
+    config.testFailPrompt = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
+    config.testFailSteps  = loadField(cnfobj, "testFailSteps",   config.testFailSteps);
+    config.systemText     = loadField(cnfobj, "systemText",      config.systemText);
+    config.systemTextFile = loadField(cnfobj, "systemTextFile",  config.systemTextFile);
+    config.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.roleOfAI);
+    config.useOptReport   = loadField(cnfobj, "useOptReport",    config.useOptReport);
+    config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
+    config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
 
     settings = std::move(config);
   }
@@ -883,79 +1109,57 @@ Settings loadConfig(const std::string& configFileName)
               << std::endl;
   }
 
+  std::cerr << "---" << std::endl;
+  writeSettings(std::cerr, settings);
   return settings;
 }
 
-std::string replace_nl(std::string s)
-{
-  boost::replace_all(s, "\n", "\\n");
 
-  return s;
-}
-
-void writeSettings(std::ostream& os, const Settings& settings)
+void createDefaultConfig(const CmdLineArgs& args)
 {
-  // print pretty json by hand, as boost does not pretty print by default.
-  // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
-  os << "{"
-     << "\n  \"invokeai\":\""       << settings.invokeai << "\","
-     << "\n  \"optcompiler\":\""    << settings.optcompiler << "\","
-     << "\n  \"optreport\":\""      << settings.optreport << "\","
-     << "\n  \"optcompile\":\""     << settings.optcompile << "\","
-     << "\n  \"queryFile\":\""      << settings.queryFile << "\","
-     << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
-     << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
-     << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
-     << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
-     << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
-     << "\n  \"contextMessage\":\"" << replace_nl(settings.contextMessage) << "\"" << ","
-     << "\n  \"onePromptTask\":\""  << replace_nl(settings.onePromptTask) << "\"" << ","
-     << "\n  \"onePromptSteps\":\"" << replace_nl(settings.onePromptSteps) << "\"" << ","
-     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\"" << ","
-     << "\n  \"compFailSteps\":\""  << replace_nl(settings.compFailSteps) << "\"" << ","
-     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\"" << ","
-     << "\n  \"testFailSteps\":\""  << replace_nl(settings.testFailSteps) << "\"" << ","
-     << "\n  \"useOptReport\":"     << as_string(settings.useOptReport) << ","
-     << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
-     << "\n  \"iterations\":"       << settings.iterations
-     << "\n}" << std::endl;
-}
-
-void createDefaultConfig(const std::string& configFileName)
-{
-  if (std::filesystem::exists(configFileName))
+  if (std::filesystem::exists(args.configFileName))
   {
-    std::cerr << "config file " << configFileName << " exists."
+    std::cerr << "config file " << args.configFileName << " exists."
               << "\n  not creating a new file! (delete file or choose different file name)"
               << std::endl;
 
     return;
   }
 
-  std::ofstream ofs(configFileName);
-  Settings      defaults;
+  std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, defaults);
+  writeSettings(ofs, modelDefaults(args.configModel));
 }
 
 
 struct CmdLineProc
 {
+  CmdLineArgs::Model
+  parseModel(std::string m)
+  {
+    if (m == "gpt4")   return CmdLineArgs::gpt4;
+    if (m == "claude") return CmdLineArgs::claude;
+
+    return CmdLineArgs::error;
+  }
+
   void operator()(const std::string& arg)
   {
-    if (arg.rfind(phelpconfig) != std::string::npos)
+    if (arg.rfind(phelpconfig, 0) != std::string::npos)
       opts.helpConfig = true;
-    else if (arg.rfind(phelp) != std::string::npos)
+    else if (arg.rfind(phelp, 0) != std::string::npos)
       opts.help = true;
-    else if (arg.rfind(phelp2) != std::string::npos)
+    else if (arg.rfind(phelp2, 0) != std::string::npos)
       opts.help = true;
-    else if (arg.rfind(phelp3) != std::string::npos)
+    else if (arg.rfind(phelp3, 0) != std::string::npos)
       opts.help = true;
-    else if (arg.rfind(pcreateconfig) != std::string::npos)
-      opts.createConfig = true;
-    else if (arg.rfind(pconfig) != std::string::npos)
+    else if (arg.rfind(pcreateconfig2, 0) != std::string::npos)
+      opts.configModel = parseModel(arg.substr(pcreateconfig2.size()));
+    else if (arg.rfind(pcreateconfig, 0) != std::string::npos)
+      opts.configModel = CmdLineArgs::gpt4;
+    else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
-    else if (arg.rfind(pharness) != std::string::npos)
+    else if (arg.rfind(pharness, 0) != std::string::npos)
       opts.harness = arg.substr(pharness.size());
     else
       opts.args.push_back(arg);
@@ -970,17 +1174,19 @@ struct CmdLineProc
   static std::string phelp3;
   static std::string phelpconfig;
   static std::string pcreateconfig;
+  static std::string pcreateconfig2;
   static std::string pconfig;
   static std::string pharness;
 };
 
-std::string CmdLineProc::phelp         = "--help";
-std::string CmdLineProc::phelp2        = "-help";
-std::string CmdLineProc::phelp3        = "-h";
-std::string CmdLineProc::phelpconfig   = "--help-config";
-std::string CmdLineProc::pcreateconfig = "--create-config";
-std::string CmdLineProc::pconfig       = "--config=";
-std::string CmdLineProc::pharness      = "--harness-param=";
+std::string CmdLineProc::phelp          = "--help";
+std::string CmdLineProc::phelp2         = "-help";
+std::string CmdLineProc::phelp3         = "-h";
+std::string CmdLineProc::phelpconfig    = "--help-config";
+std::string CmdLineProc::pcreateconfig  = "--create-config";
+std::string CmdLineProc::pcreateconfig2 = "--create-config=";
+std::string CmdLineProc::pconfig        = "--config=";
+std::string CmdLineProc::pharness       = "--harness-param=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
@@ -998,9 +1204,25 @@ struct Revision : RevisionBase
   const TestResult&  result()   const { return std::get<1>(*this); }
 };
 
-std::ostream& operator<<(std::ostream& os, const Revision& rev)
+struct RevisionPrinter
 {
-  return os << rev.fileName() << ": " << rev.result();
+  const Revision& obj;
+};
+
+std::ostream& operator<<(std::ostream& os, const RevisionPrinter& el)
+{
+  constexpr std::size_t filenamelen = 20;
+  constexpr std::size_t prefix      = 4;
+  constexpr std::size_t suffix      = filenamelen - prefix - 1;
+
+  std::string_view vw = el.obj.fileName();
+
+  if (vw.size() > filenamelen)
+    os << vw.substr(0, prefix) << "*" << vw.substr(vw.size() - suffix);
+  else
+    os << vw << std::setw(filenamelen - vw.size()) << "";
+
+  return os << ": " << TestResultPrinter{ el.obj.result() };
 }
 
 
@@ -1028,16 +1250,17 @@ qualityText(const std::vector<Revision>& variants)
     return "";
 
   if (std::isnan(curr))
-    return " were not assessed";
+    return "were not assessed";
 
-  if (curr < prev)
-    return " improved";
+  if (curr < prev) // consider adding x% to allow for performance variability
+    return "improved";
 
-  if (prev < curr)
-    return " got worse";
+  if (prev < curr) // consider adding x%
+    return "got worse";
 
-  return " stayed the same";
+  return "stayed the same";
 }
+
 
 Revision
 initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
@@ -1047,7 +1270,6 @@ initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
 
   return { cmdlnargs.args.back(), invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness) };
 }
-
 
 
 int main(int argc, char** argv)
@@ -1070,9 +1292,9 @@ int main(int argc, char** argv)
   }
 
 
-  if (cmdlnargs.createConfig)
+  if (cmdlnargs.configModel != CmdLineArgs::none)
   {
-    createDefaultConfig(cmdlnargs.configFileName);
+    createDefaultConfig(cmdlnargs);
     return 0;
   }
 
@@ -1089,7 +1311,7 @@ int main(int argc, char** argv)
 
   if (!compres.success())
   {
-    std::cerr << "Input file does not compile: \n"
+    std::cerr << "Input file does not compile:\n"
               << compres.output()
               << std::endl;
 
@@ -1116,7 +1338,7 @@ int main(int argc, char** argv)
       std::string response = loadAIResponse(settings);
       std::string newFile  = storeGeneratedFile(settings, response, cmdlnargs.args.back());
 
-      query = appendResponse(std::move(query), response);
+      query   = appendResponse(settings, std::move(query), response);
       compres = compileResult(settings, newFile, cmdlnargs.args);
 
       if (compres.success())
@@ -1193,7 +1415,7 @@ int main(int argc, char** argv)
   storeQuery(settings, query);
 
   for (const Revision& r : variants)
-    std::cout << r << std::endl;
+    std::cout << RevisionPrinter{r} << std::endl;
 
   // go over results and rank them based on success and results
 
