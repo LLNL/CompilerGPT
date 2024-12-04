@@ -4,6 +4,7 @@
 #include <iostream>
 #include <numeric>
 #include <charconv>
+#include <regex>
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
@@ -32,7 +33,7 @@ const char* synopsis = "optai: code optimizations through LLMs"
                        "\n               bugs and performance using a specified test"
                        "\n               harness.";
 
-const char* usage = "usage: optai switches c++file.cc"
+const char* usage = "usage: optai switches source-file"
                     "\n  switches:"
                     "\n    -h"
                     "\n    -help"
@@ -52,6 +53,15 @@ const char* usage = "usage: optai switches c++file.cc"
                     "\n                      The tester is invoked with two arguments,"
                     "\n                      the generated file and param:"
                     "\n                        testScript genfile.cc p"
+                    "\n    --kernel=range    chooses a specific code segment for optimization."
+                    "\n                      range is specified in terms of line and optional column"
+                    "\n                      number."
+                    "\n                      The following are examples of valid options:"
+                    "\n                        0-10    Lines 0-10 (excluding Line 10)."
+                    "\n                        7:4-10  Lines 7 (starting at column 4) to Line 10."
+                    "\n                        7:2-10:8 Lines 7 (starting at column 2) to Line 10"
+                    "\n                                 (up to column 8)."
+                    "\n                      default: the whole input file"
                     "\n"
                     "\n  TestScript: success or failure is returned through the exit status"
                     "\n              a numeric quality score is returned on the last"
@@ -158,6 +168,56 @@ Settings setupClaude(Settings settings)
   return settings;
 }
 
+using SourcePointBase = std::tuple<std::size_t, std::size_t>;
+struct SourcePoint : SourcePointBase
+{
+  using base = SourcePointBase;
+  using base::base;
+
+  std::size_t line() const { return std::get<0>(*this); }
+  std::size_t col()  const { return std::get<1>(*this); }
+
+  static
+  SourcePoint origin();
+
+  static
+  SourcePoint eof();
+};
+
+// static
+SourcePoint
+SourcePoint::origin()
+{
+  return { 0, 0 };
+}
+
+// static
+SourcePoint
+SourcePoint::eof()
+{
+  return { std::numeric_limits<std::size_t>::max(),
+           std::numeric_limits<std::size_t>::max()
+         };
+}
+
+using SourceRangeBase = std::tuple<SourcePoint, SourcePoint>;
+struct SourceRange : SourceRangeBase
+{
+  using base = SourceRangeBase;
+  using base::base;
+
+  SourcePoint beg() const { return std::get<0>(*this); }
+  SourcePoint lim() const { return std::get<1>(*this); }
+
+  bool entireFile() const
+  {
+    return (  (beg() == SourcePoint::origin())
+           && (lim() == SourcePoint::eof())
+           );
+  }
+};
+
+
 
 struct CmdLineArgs
 {
@@ -168,7 +228,8 @@ struct CmdLineArgs
   Model                    configModel       = none;
   std::string              configFileName    = "optai.json";
   std::string              harness           = "";
-  std::vector<std::string> args;
+  SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
+  std::vector<std::string> all;
 };
 
 const char* as_string(bool v, bool align = false)
@@ -275,19 +336,128 @@ splitString(const std::string& input, char splitch = '\n')
   return res;
 }
 
+using DiagnosticBase = std::tuple<std::string, SourcePoint, std::vector<std::string> >;
+struct Diagnostic : DiagnosticBase
+{
+  using base = DiagnosticBase;
+  using base::base;
+
+  const std::string&              file()     const { return std::get<0>(*this); }
+  SourcePoint                     location() const { return std::get<1>(*this); }
+  const std::vector<std::string>& message()  const { return std::get<2>(*this); }
+
+  bool empty() const { return message().empty(); }
+
+  std::string&              file()     { return std::get<0>(*this); }
+  SourcePoint&              location() { return std::get<1>(*this); }
+  std::vector<std::string>& message()  { return std::get<2>(*this); }
+};
+
+std::tuple<std::string, SourcePoint>
+fileLocation(const std::string& s)
+{
+  const std::regex patLocation{"(.*):([0-9]*):([0-9]*)"};
+  std::smatch      matches;
+
+  if (std::regex_search(s, matches, patLocation))
+  {
+    assert(matches.size() == 4);
+    return { matches[1], { std::stoi(matches[2]), std::stoi(matches[3]) } };
+  }
+
+  return {};
+}
+
+
+struct DiagnosticFilter2
+{
+  void appendCurrentDiagnostic()
+  {
+    diagnosed.emplace_back();
+    diagnosed.back().swap(curr);
+  }
+
+  void operator()(const std::string& s)
+  {
+    const bool  isIncludeTrace = s.rfind("In file included from", 0) == 0;
+
+    if (isIncludeTrace)
+      return;
+
+    std::string file;
+    SourcePoint loc;
+
+    std::tie(file, loc) = fileLocation(s);
+
+    const bool  containsSourceLoc = !file.empty();
+
+    if (containsSourceLoc)
+    {
+      appendCurrentDiagnostic();
+
+      curr = Diagnostic{ file, loc, {} };
+    }
+
+    curr.message().push_back(s);
+  }
+
+  operator std::vector<Diagnostic>() &&
+  {
+    appendCurrentDiagnostic();
+    return std::move(diagnosed);
+  }
+
+  Diagnostic              curr;
+  std::vector<Diagnostic> diagnosed;
+};
+
+#if 0
 struct DiagnosticFilter
 {
+  // returns the line number (expected to be at the beginning of line).
+  //   if no line number can be found return max(std::size_t) to indicate
+  //   a non match.
+  std::size_t lineNumber(std::string_view line) const
+  {
+    if (line.at(0) == ':') line.remove_prefix(1);
+
+    std::size_t res;
+    auto const  result = std::from_chars(line.data(), line.data() + line.size(), res);
+
+    if (result.ptr == line.data())
+    {
+      std::cerr << "unable to find line number in: " << line
+                << std::endl;
+      return std::numeric_limits<std::size_t>::max();
+    }
+
+    return res;
+  }
+
   bool isMainFile(std::string_view line) const
   {
-    return line.find(mainFile) != std::string::npos;
+    std::size_t const pos = line.find(mainFile);
+
+    if (pos == std::string::npos)
+      return false;
+
+    if (rng.empty())
+      return true;
+
+    line.remove_prefix(pos+mainFile.size());
+
+    std::size_t const ln = lineNumber(line);
+    std::cerr << "ln = " << ln << std::endl;
+
+    return (rng.beg().line() <= ln) && (ln < rng.lim().line());
   };
 
   void moveMessageToResult()
   {
-    std::copy( std::make_move_iterator(pendingMessageTrace.begin()), std::make_move_iterator(pendingMessageTrace.end()),
-               std::back_inserter(res)
-             );
+    auto const beg = std::make_move_iterator(pendingMessageTrace.begin());
+    auto const lim = std::make_move_iterator(pendingMessageTrace.end());
 
+    std::copy( beg, lim, std::back_inserter(res) );
     pendingMessageTrace.clear();
     pendingIncludeTrace.clear();
   }
@@ -302,25 +472,40 @@ struct DiagnosticFilter
       {
         if (refsMainFile)
         {
+          std::cerr << "+m1 " << s << std::endl;
           moveMessageToResult();
         }
         else
         {
+          std::cerr << "-c1 " << s << std::endl;
           pendingMessageTrace.clear();
           refsMainFile = true;
         }
       }
+      else if (refsMainFile)
+      {
+        std::cerr << "+m2 " << s << std::endl;
+        moveMessageToResult();
+        refsMainFile = false;
+      }
+      //~ else
+      //~ {
+        //~ std::cerr << "-c2 " << s << std::endl;
+        //~ pendingMessageTrace.clear();
+      //~ }
 
+      std::cerr << "+p1 " << s << std::endl;
       pendingMessageTrace.push_back(s);
     }
     else if (pendingMessageTrace.empty())
     {
+      std::cerr << "+p2 " << s << std::endl;
       pendingIncludeTrace.push_back(s);
     }
     else if (refsMainFile)
     {
       refsMainFile = false;
-
+      std::cerr << "+m2 " << std::endl;
       moveMessageToResult();
     }
   }
@@ -332,36 +517,60 @@ struct DiagnosticFilter
   }
 
   std::string_view         mainFile;
+  SourceRange              rng;
   bool                     refsMainFile         = false;
   std::vector<std::string> pendingIncludeTrace  = {};
   std::vector<std::string> pendingMessageTrace  = {};
   std::vector<std::string> res                  = {};
 };
+#endif
 
+// std::string
 
-std::string filterMessageOutput(const std::string& out, std::string_view filename)
+CompilationResult
+filterMessageOutput(const std::string& out, std::string_view filename, SourceRange rng, bool success)
 {
+  if (!success) return { out, success };
+
   std::vector<std::string> lines = splitString(out);
+  std::vector<Diagnostic>  diagnosed = std::for_each( lines.begin(), lines.end(),
+                                                      //~ DiagnosticFilter{filename, rng}
+                                                      DiagnosticFilter2{}
+                                                    );
 
-  lines = std::for_each(lines.begin(), lines.end(), DiagnosticFilter{filename});
+  auto outsideSourceRange =
+           [rng, filename](const Diagnostic& el) -> bool
+           {
+             if (el.file().find(filename) == std::string::npos)
+               return true;
 
-  return std::accumulate( lines.begin(), lines.end(),
-                          std::string{},
-                          [](std::string lhs, const std::string rhs) -> std::string
-                          {
-                            lhs += '\n';
-                            lhs += rhs;
+             return (  (rng.beg()     <= el.location())
+                    && (el.location() <  rng.lim())
+                    );
+           };
+  auto beg = diagnosed.begin();
+  auto pos = std::remove_if( beg, diagnosed.end(), outsideSourceRange );
 
-                            return lhs;
-                          }
-                        );
+  return { std::accumulate( beg, pos,
+                            std::string{},
+                            [](std::string lhs, const Diagnostic& rhs) -> std::string
+                            {
+                              for (const std::string& s : rhs.message())
+                              {
+                                lhs += '\n';
+                                lhs += s;
+                              }
+
+                              return lhs;
+                            }
+                          ),
+           success
+         };
 }
 
 
-
-
 CompilationResult
-invokeCompiler(const Settings& settings, std::vector<std::string> args)
+invokeCompiler(const Settings& settings, const CmdLineArgs& cmdline, std::vector<std::string> args)
 {
   if (!settings.useOptReport)
   {
@@ -400,24 +609,36 @@ invokeCompiler(const Settings& settings, std::vector<std::string> args)
   const bool success = exitCode.get() == 0;
   std::cerr << "success(compile): " << success << std::endl;
 
-  return { filterMessageOutput(errstr.get(), args.back()), success };
+  return filterMessageOutput(errstr.get(), args.back(), cmdline.kernel, success);
 }
 
 CompilationResult
-compileResult(const Settings& settings, std::string newFile, std::vector<std::string> args)
+compileResult(const Settings& settings, const CmdLineArgs& cmdline, std::string newFile)
 {
+  std::vector<std::string> args = cmdline.all;
+
   args.pop_back();
   args.push_back(newFile);
 
-  CompilationResult res = invokeCompiler(settings, args);
+  CompilationResult res = invokeCompiler(settings, cmdline, args);
 
   std::cerr << res.output() << std::endl;
 
   return res;
 }
 
+CompilationResult
+compileResult(const Settings& settings, const CmdLineArgs& cmdline)
+{
+  return compileResult(settings, cmdline, cmdline.all.back());
+}
+
+
 void invokeAI(const Settings& settings)
 {
+  std::cerr << "!CallAI: " << settings.invokeai << std::endl;
+  return;
+
   std::cerr << "CallAI: " << settings.invokeai << std::endl;
 
   std::vector<std::string> noargs;
@@ -576,15 +797,36 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 }
 
 
-std::string loadCodeQuery(const Settings& settings, const std::string& output, const std::string& filename)
+std::string loadCodeQuery( const Settings& settings,
+                           const std::string& output,
+                           const std::string& filename,
+                           SourceRange rng
+                         )
 {
   std::stringstream txt;
+
+  txt << settings.onePromptTask;
+
+  if (!rng.entireFile())
+    txt << "The code's first line number is: " << rng.beg().line()
+        << "\n";
+
+  txt << CC_MARKER_BEGIN << settings.inputLang
+      << "\n";
+
   std::ifstream     src{filename};
   std::string       line;
+  std::size_t const begLine = rng.beg().line();
+  std::size_t const limLine = rng.lim().line();
+  std::size_t       linectr = 1; // source code starts at line 1
 
-  txt << settings.onePromptTask << CC_MARKER_BEGIN << settings.inputLang << "\n";
+  // skip beginning lines
+  while ((linectr < begLine) && std::getline(src, line)) ++linectr;
 
-  while(std::getline(src, line)) {
+  // copy code segment
+  while ((linectr < limLine) && std::getline(src, line))
+  {
+    ++linectr;
     txt << line << "\n";
   }
 
@@ -592,7 +834,7 @@ std::string loadCodeQuery(const Settings& settings, const std::string& output, c
 
   if (settings.useOptReport)
   {
-    txt << settings.optcompiler << " produces the optimization report:\n"
+    txt << settings.optcompiler << " produces the following optimization report:\n"
         << output << '\n';
   }
 
@@ -602,7 +844,7 @@ std::string loadCodeQuery(const Settings& settings, const std::string& output, c
   return txt.str();
 }
 
-json::value initialPrompt(const Settings& settings, std::string output, std::string filename)
+json::value initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output)
 {
   // do not generate a prompt in this case
   if (settings.iterations == 0)
@@ -630,7 +872,7 @@ json::value initialPrompt(const Settings& settings, std::string output, std::str
     json::object q;
 
     q["role"]    = "user";
-    q["content"] = loadCodeQuery(settings, output, filename);
+    q["content"] = loadCodeQuery(settings, output, args.all.back(), args.kernel);
 
     res.emplace_back(std::move(q));
   }
@@ -830,17 +1072,40 @@ printUnescaped(std::ostream& os, std::string_view code)
   }
 }
 
+void
+copyFromOriginalFile( std::string_view fileName,
+                      std::ostream& os,
+                      SourcePoint beg,
+                      SourcePoint lim
+                    )
+{
+  std::filesystem::path p{fileName};
+  std::ifstream         inp(p);
+  std::string           line;
+  std::size_t           linectr = 0;
+
+  while ((linectr < beg.line()) && std::getline(inp, line)) ++linectr;
+
+  // copy code segment
+  while ((linectr < lim.line()) && std::getline(inp, line))
+  {
+    ++linectr;
+    os << line << std::endl;
+  }
+}
 
 std::string
 storeGeneratedFile( const Settings& settings,
-                    std::string_view response,
-                    std::string_view fileName,
-                    int iteration = 1
+                    const CmdLineArgs& cmdline,
+                    std::string_view response
                   )
 {
-  const std::string   marker    = CC_MARKER_BEGIN + settings.outputLang;
+  std::string_view    fileName  = cmdline.all.back();
+  const int           iteration = 1;
   const std::string   newFile   = generateNewFileName(fileName, settings.newFileExt, iteration);
+  const std::string   marker    = CC_MARKER_BEGIN + settings.outputLang;
   const std::size_t   mark      = response.find(marker);
+
   if (mark == std::string::npos)
   {
     std::cerr << response
@@ -851,6 +1116,7 @@ storeGeneratedFile( const Settings& settings,
 
   const std::size_t   beg       = mark + marker.size();
   const std::size_t   lim       = response.find(CC_MARKER_LIMIT, beg);
+
   if (beg == std::string::npos)
   {
     std::cerr << response
@@ -860,9 +1126,12 @@ storeGeneratedFile( const Settings& settings,
     throw std::runtime_error{"Cannot find code delimiter in AI output."};
   }
 
-  std::ofstream outf(newFile);
+  std::ofstream outf{newFile};
 
+  copyFromOriginalFile(fileName, outf, SourcePoint::origin(), cmdline.kernel.beg());
   printUnescaped(outf, response.substr(beg, lim - beg));
+  copyFromOriginalFile(fileName, outf, cmdline.kernel.lim(), SourcePoint::eof());
+
   return newFile;
 }
 
@@ -1135,12 +1404,77 @@ void createDefaultConfig(const CmdLineArgs& args)
 struct CmdLineProc
 {
   CmdLineArgs::Model
-  parseModel(std::string m)
+  parseModel(std::string_view m)
   {
     if (m == "gpt4")   return CmdLineArgs::gpt4;
     if (m == "claude") return CmdLineArgs::claude;
 
     return CmdLineArgs::error;
+  }
+
+  std::tuple<std::size_t, std::string_view>
+  parseNum(std::string_view s, std::function<std::string_view(std::string_view)> follow)
+  {
+    std::size_t res = 0;
+
+    while (!s.empty() && (s[0] >= '0') && (s[0] <= '9'))
+    {
+      res = res*10 + s[0] - '0';
+      s.remove_prefix(1);
+    }
+
+    return {res, follow(s)};
+  }
+
+  std::function<std::string_view(std::string_view)>
+  parseChar(char c)
+  {
+    return [c](std::string_view s) -> std::string_view
+           {
+             if ( (s.size() < 1) || (s[0] != c) )
+               throw std::runtime_error{"unable to parse integer"};
+
+             s.remove_prefix(1);
+             return s;
+           };
+  }
+
+  std::function<std::string_view(std::string_view)>
+  parseOptionalChar(char c)
+  {
+    return [c](std::string_view s) -> std::string_view
+           {
+             if ( (s.size() < 1) || (s[0] != c) )
+               return s;
+
+             s.remove_prefix(1);
+             return s;
+           };
+  }
+
+  std::tuple<SourcePoint, std::string_view>
+  parseSourcePoint(std::string_view s0, std::function<std::string_view(std::string_view)> follow)
+  {
+    auto [ln, s1] = parseNum(s0, parseOptionalChar(':'));
+    auto [cl, s2] = parseNum(s1, follow);
+
+    return { {ln,cl}, s2 };
+  }
+
+  SourceRange
+  parseSourceRange(std::string_view s0)
+  {
+    auto [beg, s1] = parseSourcePoint(s0, parseChar('-'));
+    auto [lim, s2] = parseSourcePoint(s1, parseOptionalChar(';'));
+
+    if (!s2.empty())
+    {
+      std::cerr << "source range has trailing characters; source range ignored."
+                << std::endl;
+      return {SourcePoint{},SourcePoint{}};
+    }
+
+    return {beg,lim};
   }
 
   void operator()(const std::string& arg)
@@ -1161,8 +1495,10 @@ struct CmdLineProc
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pharness, 0) != std::string::npos)
       opts.harness = arg.substr(pharness.size());
+    else if (arg.rfind(pkernel, 0) != std::string::npos)
+      opts.kernel = parseSourceRange(arg.substr(pkernel.size()));
     else
-      opts.args.push_back(arg);
+      opts.all.push_back(arg);
   }
 
   operator CmdLineArgs() && { return std::move(opts); }
@@ -1177,6 +1513,7 @@ struct CmdLineProc
   static std::string pcreateconfig2;
   static std::string pconfig;
   static std::string pharness;
+  static std::string pkernel;
 };
 
 std::string CmdLineProc::phelp          = "--help";
@@ -1187,6 +1524,7 @@ std::string CmdLineProc::pcreateconfig  = "--create-config";
 std::string CmdLineProc::pcreateconfig2 = "--create-config=";
 std::string CmdLineProc::pconfig        = "--config=";
 std::string CmdLineProc::pharness       = "--harness-param=";
+std::string CmdLineProc::pkernel        = "--kernel=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
@@ -1265,10 +1603,14 @@ qualityText(const std::vector<Revision>& variants)
 Revision
 initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
 {
-  if (settings.inputLang != settings.outputLang)
-    return { cmdlnargs.args.back(), TestResult{false, nanValue<long double>(), "test harness not run (inputLang != outputLang)"} };
+  std::string fileName = cmdlnargs.all.back();
 
-  return { cmdlnargs.args.back(), invokeTestScript(settings, cmdlnargs.args.back(), cmdlnargs.harness) };
+  if (settings.inputLang != settings.outputLang)
+    return { fileName,
+             TestResult{false, nanValue<long double>(), "test harness not run (inputLang != outputLang)"}
+           };
+
+  return { fileName, invokeTestScript(settings, fileName, cmdlnargs.harness) };
 }
 
 
@@ -1304,7 +1646,7 @@ int main(int argc, char** argv)
   writeSettings(std::cout, settings);
   std::cout << std::endl;
 
-  CompilationResult compres    = compileResult(settings, cmdlnargs.args.back(), cmdlnargs.args);
+  CompilationResult compres    = compileResult(settings, cmdlnargs);
   int               iterations = settings.iterations;
 
   std::cerr << "compiled " << compres.success() << std::endl;
@@ -1322,7 +1664,7 @@ int main(int argc, char** argv)
   std::vector<Revision> variants{ initialAssessment(settings, cmdlnargs) };
 
   // initial prompt
-  json::value           query = initialPrompt( settings, std::move(compres.output()), cmdlnargs.args.back() );
+  json::value           query = initialPrompt( settings, cmdlnargs, std::move(compres.output()) );
 
   try
   {
@@ -1336,10 +1678,10 @@ int main(int argc, char** argv)
       invokeAI(settings);
 
       std::string response = loadAIResponse(settings);
-      std::string newFile  = storeGeneratedFile(settings, response, cmdlnargs.args.back());
+      std::string newFile  = storeGeneratedFile(settings, cmdlnargs, response);
 
       query   = appendResponse(settings, std::move(query), response);
-      compres = compileResult(settings, newFile, cmdlnargs.args);
+      compres = compileResult(settings, cmdlnargs, newFile);
 
       if (compres.success())
       {
