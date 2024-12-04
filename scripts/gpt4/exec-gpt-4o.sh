@@ -8,7 +8,11 @@ fi
 
 dir=`dirname $0`
 
+# On Linux system use readlink
 query=`readlink -e $dir/query-gpt-4o.py`
+
+# On BSD systems use realpath
+# query=`realpath $dir/query-gpt-4o.py`
 
 echo "$query"
 python3 "$query"
