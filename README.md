@@ -2,7 +2,7 @@
 
 Compiler optimization reports are an important tool for performance engineers. However, they are often too complex for non compiler experts.
 
-CompilerGPT is a framework that submits compiler optimization reports (i.e., Clang) and the source code to an LLM. The LLM is prompted to prioritize the findings in the optimization reports and then to make changes in the code accordingly. An automated test harness validates the changes. The test harness provides feedback to the LLM on any errors that were introduced to the code base. 
+CompilerGPT is a framework that submits compiler optimization reports (i.e., Clang) and the source code to an LLM. The LLM is prompted to prioritize the findings in the optimization reports and then to make changes in the code accordingly. An automated test harness validates the changes. The test harness provides feedback to the LLM on any errors that were introduced to the code base.
 
 CompilerGPT iterates with the LLM a given number of times and reports on the obtained correctness and perfomance results of each iteration.
 
@@ -37,20 +37,20 @@ Build CompilerGPT:
 
 Call CompilerGPT:
 
-    compilergpt --config=configfile.json c++-source-file
+    compgpt --config=configfile.json c++-source-file
 
 The configurtation is read from the json file. The config file specifies how to interact with a target compiler and the LLM system.
 
 
 A default configuration for GPT4 can be created by
 
-    compilergpt --config=configfile.json --createconfig=gpt4
+    compgpt --config=configfile.json --createconfig=gpt4
 
 On BSD systems (such as OS X), the script scripts/gpt4/execquery-bsd.sh can be used instead of scripts/gpt4/execquery.sh to avoid issues with the GNU readlink utility.
 
 Claude is an alternative to the GPT model. It can be used in a similar way than gpt, but it requires a different configuration. A default configuration file can be created by
 
-    compilergpt --config=configfile.json --createconfig=claude
+    compgpt --config=configfile.json --createconfig=claude
 
 Note, the interaction with GPT uses GPT's Python library, while the interaction with
 claude is based on curl. This demonstrates the flexibility of the driver.

@@ -24,7 +24,7 @@ const std::string CC_MARKER_LIMIT = "```";
 namespace
 {
 
-const char* synopsis = "optai: code optimizations through LLMs"
+const char* synopsis = "compgpt: code optimizations through LLMs"
                        "\n  description: feeds clang optimization report of a kernel to"
                        "\n               an LLM and asks it to optimize the source code"
                        "\n               The rewritten part is extracted from the LLM"
@@ -33,14 +33,14 @@ const char* synopsis = "optai: code optimizations through LLMs"
                        "\n               bugs and performance using a specified test"
                        "\n               harness.";
 
-const char* usage = "usage: optai switches source-file"
+const char* usage = "usage: compgpt switches source-file"
                     "\n  switches:"
                     "\n    -h"
                     "\n    -help"
                     "\n    --help            displays this help message and exits."
                     "\n    --help-config     prints config file documentation."
                     "\n    --config=jsonfile config file in json format."
-                    "\n                      default: jsonfile=optai.json"
+                    "\n                      default: jsonfile=compgpt.json"
                     "\n    --create-config   creates config file and exits."
                     "\n    --create-config=p creates config file for a specified AI model, and exits."
                     "\n                      p in {gpt4,claude}"
@@ -105,7 +105,7 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n"
                          "\nPrompting:"
                          "\n  systemText     a string for setting the context/role in the AI communication."
-                         "\n  systemTextFile if set optai writes the system text into a file instead of"
+                         "\n  systemTextFile if set compgpt writes the system text into a file instead of"
                          "\n                 passing it as first message in the message list."
                          "\n  roleOfAI       the name of the AI role in the conversation context."
                          "\n  onePromptTask  a string for the initial prompt (onePromptTask code onePromptSteps)."
@@ -226,7 +226,7 @@ struct CmdLineArgs
   bool                     help              = false;
   bool                     helpConfig        = false;
   Model                    configModel       = none;
-  std::string              configFileName    = "optai.json";
+  std::string              configFileName    = "compgpt.json";
   std::string              harness           = "";
   SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
   std::vector<std::string> all;

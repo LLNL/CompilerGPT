@@ -8,7 +8,7 @@ ifeq ($(BUILD_TYPE),debug)
 endif
 
 
-BINARIES := optai.bin logfilter.bin prettyjson.bin
+BINARIES := compgpt.bin logfilter.bin prettyjson.bin
 HEADERS  :=
 SOURCES  := $(BINARY:.bin=.cc)
 OBJECTS  := $(SOURCES:.cc=.o)
