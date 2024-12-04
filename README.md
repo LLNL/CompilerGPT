@@ -13,14 +13,14 @@ CompilerGPT can be configured for multiple AI backends (e.g., Python API with gp
 Requirements:
 * C++ compiler supporting C++20
   + boost json (boost > 1.78)
-* pyhton3 (only for gpt's API)
+* pyhton3 (only for OpenAI's API)
 
 Directory structure:
 * scripts: scripts to interact with AI (e.g., gpt and claude)
-* src: C++ source
-* tests: some test codes to illustrate the working of CompilerGPT
+* src: C++ sources (compgpt and tools)
+* tests: test codes to illustrate the working of CompilerGPT
 
-GPT Environment: Default queries will use openai's API (in scripts/gpt4/). Three environemnt variables control the invocation:
+GPT Environment: Default queries will use OpenAI's API (in scripts/gpt4/). Three environemnt variables control the invocation:
 * OPENAI\_API\_KEY the openai key for queries
 * OPENAI\_ENV\_DIR (optional) the location of the python environment with the openai connection framework. If unspecified, python3 will be used without special environment.
 * SSL\_CERT\_FILE (optional) the location of a root certificate to avoid SSL connection errors.\
@@ -52,12 +52,11 @@ Claude is an alternative to the GPT model. It can be used in a similar way than 
 
     compgpt --config=configfile.json --createconfig=claude
 
-Note, the interaction with GPT uses GPT's Python library, while the interaction with
+Note, the interaction with GPT uses OpenAI's Python library, while the interaction with
 claude is based on curl. This demonstrates the flexibility of the driver.
 
-
-In addition, the optai driver can be setup to use AI for translation projects. Currently, the
-config file has to be tweaked manually.
+In addition, compgpt can be setup to use AI for translation projects. Currently, the
+config file has to be tweaked manually to support that use case.
 
 
 ## License
