@@ -24,7 +24,7 @@ const std::string CC_MARKER_LIMIT = "```";
 namespace
 {
 
-const char* synopsis = "compgpt: code optimizations through LLMs"
+const char* synopsis = "compgpt: compiler driven code optimizations through LLMs"
                        "\n  description: feeds clang optimization report of a kernel to"
                        "\n               an LLM and asks it to optimize the source code"
                        "\n               The rewritten part is extracted from the LLM"
@@ -74,9 +74,9 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n"
                          "\nCompiler and optimization report settings:"
                          "\n  optcompiler    a string pointing to a compiler"
+                         "\n                 (an empty string runs compgpt without optimization report)"
                          "\n  optreport      arguments passed to 'optcompiler' to generate an optimization report"
                          "\n  optcompile     arguments passed to 'optcompiler' to validate compilation"
-                         "\n  useOptReport   boolean value. false turns off the use of optimization reports"
                          "\n"
                          "\nInteraction with AI"
                          "\n  invokeai       a string pointing to an executable (script) to call the external AI"
@@ -108,12 +108,14 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n  systemTextFile if set compgpt writes the system text into a file instead of"
                          "\n                 passing it as first message in the message list."
                          "\n  roleOfAI       the name of the AI role in the conversation context."
-                         "\n  onePromptTask  a string for the initial prompt (onePromptTask code onePromptSteps)."
-                         "\n  onePromptSteps a string for the initial prompt (onePromptTask code onePromptSteps)."
-                         "\n  compFailPrompt a string when the AI generated code does not compile (compFailPrompt compileErrors compFailSteps)."
-                         "\n  compFailSteps  a string when the AI generated code does not compile (compFailPrompt compileErrors compFailSteps)."
-                         "\n  testFailPrompt a string when the AI generated code produces errors with the test harness (testFailPrompt eval testFailPSteps)"
-                         "\n  testFailSteps  a string when the AI generated code produces errors with the test harness (testFailPrompt eval testFailPSteps)"
+                         "\n"
+                         "\nPrompt text"
+                         "\n  firstPrompt    the initial prompt."
+                         "\n  successPrompt  follow up prompt."
+                         "\n  compFailPrompt prompt when the AI generated code does not compile."
+                         "\n  testFailPrompt prompt when the AI generated code produces errors with the test harness."
+                         "\n  Prompt text can contain variables <<code>> [only with firstPrompt]"
+                         "\n                 and <<report>>."
                          "\n"
                          "\nIteration control:"
                          "\n  iterations     integer number specifying the maximum number of iterations."
@@ -124,9 +126,10 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n  The config file only needs entries when a default setting is overridden."
                          ;
 
+/// encapsulates all settings that can be set by a json configuration file.
 struct Settings
 {
-  std::string  invokeai       = "./scripts/gpt4/execquery.sh";
+  std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
   std::string  optcompiler    = "/usr/bin/clang";
   std::string  optreport      = "-Rpass-missed=.";
   std::string  optcompile     = "-c";
@@ -140,23 +143,22 @@ struct Settings
   std::string  systemText     = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
   std::string  roleOfAI       = "system";
   std::string  systemTextFile = "";
-  std::string  onePromptTask  = "Consider the following input code in C++:\n";
-  std::string  onePromptSteps = "Prioritize the optimizations and rewrite the code to enable better compiler optimizations.";
-  std::string  compFailPrompt = "This code did not compile. Here are the error messages:\n";
-  std::string  compFailSteps  = "Try again\n";
-  std::string  testFailPrompt = "This version failed the regression tests. Here is the evaluation: \n";
-  std::string  testFailSteps  = "Try again.\n";
+  std::string  firstPrompt    = "Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Recognize the coding patterns.\nTask 2: Make pattern specific optimizations to the code. Do not use OpenMP.\nTask 3: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 4: Use the prioritized list to improve the input code further.";
+  std::string  successPrompt = "The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.";
+  std::string  compFailPrompt = "This version did not compile. Here are the error messages:\n<<report>>\nTry again.";
+  std::string  testFailPrompt = "This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.";
 
-  bool         useOptReport   = true;
   bool         stopOnSuccess  = false;
   std::int64_t iterations     = 1;
 };
 
+/// produces base settings for gpt4
 Settings setupGPT4(Settings settings)
 {
   return settings;
 }
 
+/// produces base settings for claude
 Settings setupClaude(Settings settings)
 {
   settings.responseFile   = "response.json";
@@ -168,6 +170,7 @@ Settings setupClaude(Settings settings)
   return settings;
 }
 
+/// a source code location
 using SourcePointBase = std::tuple<std::size_t, std::size_t>;
 struct SourcePoint : SourcePointBase
 {
@@ -200,6 +203,19 @@ SourcePoint::eof()
          };
 }
 
+std::ostream&
+operator<<(std::ostream& os, SourcePoint p)
+{
+  if (p == SourcePoint::origin())
+    return os << "\u03b1";
+
+  if (p == SourcePoint::eof())
+    return os << "\u03a9";
+
+  return os << p.line() << ":" << p.col();
+}
+
+/// a source code range
 using SourceRangeBase = std::tuple<SourcePoint, SourcePoint>;
 struct SourceRange : SourceRangeBase
 {
@@ -217,8 +233,14 @@ struct SourceRange : SourceRangeBase
   }
 };
 
+std::ostream&
+operator<<(std::ostream& os, SourceRange p)
+{
+  return os << p.beg() << "-" << p.lim();
+}
 
 
+/// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
   enum Model { none = 0, error = 1, gpt4 = 2, claude = 3 };
@@ -229,9 +251,12 @@ struct CmdLineArgs
   std::string              configFileName    = "compgpt.json";
   std::string              harness           = "";
   SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
+  std::string              csvsummary        = "";
   std::vector<std::string> all;
 };
 
+/// returns a C string for a boolean. If \p align is set true gets a trailing blank.
+/// the returned string must not be freed or overwritten.
 const char* as_string(bool v, bool align = false)
 {
   if (!v) return "false";
@@ -240,6 +265,7 @@ const char* as_string(bool v, bool align = false)
   return "true ";
 }
 
+/// creates default settings for supported AI models.
 Settings modelDefaults(CmdLineArgs::Model m)
 {
   Settings defaults;
@@ -260,12 +286,15 @@ struct CompilationError : std::runtime_error
 };
 */
 
+/// returns C-style command line arguments as std::vector<std::string>
 std::vector<std::string>
 getCmdlineArgs(char** beg, char** lim)
 {
   return std::vector<std::string>(beg, lim);
 }
 
+
+/// an sbtractions to print a sequence of values that are seoarated by a seperator.
 template <class Iter>
 using RangePrinterBase = std::tuple<Iter, Iter, std::string_view>;
 
@@ -296,6 +325,8 @@ range(const Sequence& seq, std::string_view sep = " ")
   return RangePrinter<typename Sequence::const_iterator>{seq.begin(), seq.end(), sep};
 }
 
+
+/// encapsulates a compilation's result
 using CompilationResultBase = std::tuple<std::string, bool>;
 
 struct CompilationResult : CompilationResultBase
@@ -306,6 +337,7 @@ struct CompilationResult : CompilationResultBase
   const std::string& output()  const { return std::get<0>(*this); }
   bool               success() const { return std::get<1>(*this); }
 };
+
 
 void splitArgs(const std::string& s, std::vector<std::string>& args)
 {
@@ -356,7 +388,7 @@ struct Diagnostic : DiagnosticBase
 std::tuple<std::string, SourcePoint>
 fileLocation(const std::string& s)
 {
-  const std::regex patLocation{"(.*):([0-9]*):([0-9]*)"};
+  const std::regex patLocation{"(.*):([0-9]*):([0-9]*):"};
   std::smatch      matches;
 
   if (std::regex_search(s, matches, patLocation))
@@ -544,8 +576,9 @@ filterMessageOutput(const std::string& out, std::string_view filename, SourceRan
              if (el.file().find(filename) == std::string::npos)
                return true;
 
-             return (  (rng.beg()     <= el.location())
-                    && (el.location() <  rng.lim())
+             // test whether el is OUTSIDE source range
+             return (  (el.location() <  rng.beg())
+                    || (el.location() >= rng.lim())
                     );
            };
   auto beg = diagnosed.begin();
@@ -570,17 +603,15 @@ filterMessageOutput(const std::string& out, std::string_view filename, SourceRan
 
 
 CompilationResult
-invokeCompiler(const Settings& settings, const CmdLineArgs& cmdline, std::vector<std::string> args)
+invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std::string> args)
 {
-  if (!settings.useOptReport)
+  if (settings.optcompiler.size() == 0)
   {
     std::cerr << "No compiler configured. Skipping compile test."
               << std::endl;
 
     return { "", true };
   }
-
-  assert(settings.optcompiler.size() > 0);
 
   std::string src = std::move(args.back());
   args.pop_back();
@@ -609,35 +640,36 @@ invokeCompiler(const Settings& settings, const CmdLineArgs& cmdline, std::vector
   const bool success = exitCode.get() == 0;
   std::cerr << "success(compile): " << success << std::endl;
 
-  return filterMessageOutput(errstr.get(), args.back(), cmdline.kernel, success);
+  return filterMessageOutput(errstr.get(), args.back(), kernelrng, success);
 }
 
+/// calls the compiler and returns the compilation result.
 CompilationResult
-compileResult(const Settings& settings, const CmdLineArgs& cmdline, std::string newFile)
+compileResult(const Settings& settings, const CmdLineArgs& cmdline, std::string newFile, SourceRange kernelrng)
 {
   std::vector<std::string> args = cmdline.all;
 
   args.pop_back();
   args.push_back(newFile);
 
-  CompilationResult res = invokeCompiler(settings, cmdline, args);
+  CompilationResult res = invokeCompiler(settings, kernelrng, args);
 
   std::cerr << res.output() << std::endl;
-
   return res;
 }
 
+/// convenience function for first iteration
 CompilationResult
 compileResult(const Settings& settings, const CmdLineArgs& cmdline)
 {
-  return compileResult(settings, cmdline, cmdline.all.back());
+  return compileResult(settings, cmdline, cmdline.all.back(), cmdline.kernel);
 }
 
-
+/// calls AI and returns result in response file
 void invokeAI(const Settings& settings)
 {
-  std::cerr << "!CallAI: " << settings.invokeai << std::endl;
-  return;
+  //~ std::cerr << "!CallAI: " << settings.invokeai << std::endl;
+  //~ return;
 
   std::cerr << "CallAI: " << settings.invokeai << std::endl;
 
@@ -733,11 +765,12 @@ struct TestResult : TestResultBase
 struct TestResultPrinter
 {
   const TestResult& obj;
+  const char*       sep = "  score: ";
 };
 
 std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
 {
-  return os << as_string(el.obj.success(), true) << "  score: " << el.obj.score();
+  return os << as_string(el.obj.success(), true) << el.sep << el.obj.score();
 }
 
 TestResult
@@ -796,16 +829,69 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
   return { success, testScore(success, outs), std::move(errs) };
 }
 
+using PlaceholderBase = std::tuple<std::size_t, std::string>;
+
+struct Placeholder : PlaceholderBase
+{
+  using base = PlaceholderBase;
+  using base::base;
+
+  std::size_t      offsetInString() const { return std::get<0>(*this); }
+  std::string_view token()          const { return std::get<1>(*this); }
+
+  static
+  Placeholder find(std::string_view prompt);
+};
+
+
+Placeholder
+Placeholder::find(std::string_view prompt)
+{
+  if (std::size_t len = prompt.find("<<"); len != std::string_view::npos)
+  {
+    std::string_view  cand = prompt;
+    cand.remove_prefix(len + 2);
+
+    if (cand.starts_with("code>>"))
+      return Placeholder{len, "code"};
+
+    if (cand.starts_with("report>>"))
+      return Placeholder{len, "report"};
+  }
+
+  return Placeholder{prompt.size(), ""};
+}
+
+using PlaceholderMap = std::unordered_map<std::string_view, std::string>;
+
+std::string
+expandPrompt(std::string_view prompt, PlaceholderMap m)
+{
+  std::stringstream txt;
+  Placeholder       var = Placeholder::find(prompt);
+
+  while (var.token().size() != 0)
+  {
+    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
+
+    txt << prompt.substr(0, var.offsetInString())
+        << m.at(var.token());
+
+    prompt.remove_prefix(prefixlen);
+    var = Placeholder::find(prompt);
+  }
+
+  txt << prompt;
+  return txt.str();
+}
+
 
 std::string loadCodeQuery( const Settings& settings,
-                           const std::string& output,
                            const std::string& filename,
                            SourceRange rng
                          )
 {
   std::stringstream txt;
-
-  txt << settings.onePromptTask;
 
   if (!rng.entireFile())
     txt << "The code's first line number is: " << rng.beg().line()
@@ -831,15 +917,6 @@ std::string loadCodeQuery( const Settings& settings,
   }
 
   txt << CC_MARKER_LIMIT << '\n';
-
-  if (settings.useOptReport)
-  {
-    txt << settings.optcompiler << " produces the following optimization report:\n"
-        << output << '\n';
-  }
-
-  txt << settings.onePromptSteps
-      << std::flush;
 
   return txt.str();
 }
@@ -872,7 +949,11 @@ json::value initialPrompt(const Settings& settings, const CmdLineArgs& args, std
     json::object q;
 
     q["role"]    = "user";
-    q["content"] = loadCodeQuery(settings, output, args.all.back(), args.kernel);
+    q["content"] = expandPrompt( settings.firstPrompt,
+                                 { {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)}
+                                 , {"report", output}
+                                 }
+                               );
 
     res.emplace_back(std::move(q));
   }
@@ -880,49 +961,15 @@ json::value initialPrompt(const Settings& settings, const CmdLineArgs& args, std
   return res;
 }
 
+
 json::value
-appendSuccessPrompt(const Settings& settings, json::value val, std::string output, std::string /*filename*/)
+appendPrompt(json::value val, std::string prompt)
 {
   json::array&      res = val.as_array();
   json::object      q;
-  std::stringstream txt;
-
-  txt << "The previous code works.\n";
-
-  if (settings.useOptReport)
-  {
-    txt << "Following is the new optimization report:\n"
-        << output << "\n"
-        << settings.onePromptSteps
-        << std::endl;
-  }
-  else
-  {
-    txt << "Optimize the code further.\n";
-  }
-
-  txt << std::flush;
 
   q["role"]    = "user";
-  q["content"] = txt.str();
-
-  res.emplace_back(std::move(q));
-  return val;
-}
-
-json::value
-appendFailurePrompt(json::value val, std::string output, std::string /*filename*/)
-{
-  json::array&      res = val.as_array();
-  json::object      q;
-  std::stringstream txt;
-
-  txt << output
-      << "\nFix the errors in the code.\n"
-      << std::flush;
-
-  q["role"]    = "user";
-  q["content"] = txt.str();
+  q["content"] = prompt;
 
   res.emplace_back(std::move(q));
   return val;
@@ -996,7 +1043,17 @@ readJsonFile(std::istream& is)
   return p.release();
 }
 
-std::string generateNewFileName(std::string_view fileName, std::string_view newFileExt, int iteration)
+
+/// generates a unique new filename by appending a number at the end.
+/// \param  fileName   original file name
+/// \param  newFileExt new file extension (for language translation)
+/// \param  iteration  the number to append.
+/// \return the name of a non existing file
+/// \details
+///   if (fileName-ext)iteration.newFileExt does not exist return the name,
+///   otherwise try with iteration+1.
+std::string
+generateNewFileName(std::string_view fileName, std::string_view newFileExt, int iteration)
 {
   std::size_t pos = fileName.find_last_of('.');
   std::string res;
@@ -1027,23 +1084,34 @@ std::string generateNewFileName(std::string_view fileName, std::string_view newF
   return res;
 }
 
-void
+
+/// prints the code from \p code to the stream \p os while unescaping
+///   escaped characters.
+/// \return the number of lines printed.
+std::size_t
 printUnescaped(std::ostream& os, std::string_view code)
 {
-  char last = ' ';
+  std::size_t linecnt = 1;
+  char        last = ' ';
+  bool        lastIsLineBreak = false;
 
   // print to os while handling escaped characters
   for (char ch : code)
   {
+    lastIsLineBreak = false;
+
     if (last == '\\')
     {
       switch (ch)
       {
         case 'f':  /* form feed */
-                   os << "\n\n";
-                   break;
+                   ++linecnt;
+                   os << '\n';
+                   [[fallthrough]];
 
-        case 'n':  os << '\n';
+        case 'n':  ++linecnt;
+                   os << '\n';
+                   lastIsLineBreak = true;
                    break;
 
         case 't':  os << "  ";
@@ -1065,13 +1133,24 @@ printUnescaped(std::ostream& os, std::string_view code)
 
       last = ' ';
     }
+    else if (ch == '\n')
+    {
+      os << ch;
+      ++linecnt;
+      lastIsLineBreak = true;
+    }
     else if (ch == '\\')
       last = ch;
     else
       os << ch;
   }
+
+  if (!lastIsLineBreak) os << '\n';
+
+  return linecnt;
 }
 
+/// copies from the original file identified by \p fileName the range [\p beg, \p lim) to \p os.
 void
 copyFromOriginalFile( std::string_view fileName,
                       std::ostream& os,
@@ -1082,9 +1161,15 @@ copyFromOriginalFile( std::string_view fileName,
   std::filesystem::path p{fileName};
   std::ifstream         inp(p);
   std::string           line;
-  std::size_t           linectr = 0;
+  std::size_t           linectr = 1;
+
+  //~ std::cerr << "skip " << linectr << " < " << beg
+            //~ << std::endl;
 
   while ((linectr < beg.line()) && std::getline(inp, line)) ++linectr;
+
+  //~ std::cerr << "copy " << linectr << " < " << lim
+            //~ << std::endl;
 
   // copy code segment
   while ((linectr < lim.line()) && std::getline(inp, line))
@@ -1094,7 +1179,9 @@ copyFromOriginalFile( std::string_view fileName,
   }
 }
 
-std::string
+/// extracts the file content from the AI \p response and use it to generate
+///   a new input file. The new file name is returned.
+std::tuple<std::string, SourceRange>
 storeGeneratedFile( const Settings& settings,
                     const CmdLineArgs& cmdline,
                     std::string_view response
@@ -1129,13 +1216,14 @@ storeGeneratedFile( const Settings& settings,
   std::ofstream outf{newFile};
 
   copyFromOriginalFile(fileName, outf, SourcePoint::origin(), cmdline.kernel.beg());
-  printUnescaped(outf, response.substr(beg, lim - beg));
+  const std::size_t kernellen = printUnescaped(outf, response.substr(beg, lim - beg));
   copyFromOriginalFile(fileName, outf, cmdline.kernel.lim(), SourcePoint::eof());
+  const std::size_t kernellim = cmdline.kernel.beg().line() + kernellen;
 
-  return newFile;
+  return { newFile, { cmdline.kernel.beg(), { kernellim, 0 } } };
 }
 
-
+/// returns the content of stream \p is as string.
 std::string
 readTxtFile(std::istream& is)
 {
@@ -1307,13 +1395,10 @@ void writeSettings(std::ostream& os, const Settings& settings)
      << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
      << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
      << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
-     << "\n  \"onePromptTask\":\""  << replace_nl(settings.onePromptTask) << "\"" << ","
-     << "\n  \"onePromptSteps\":\"" << replace_nl(settings.onePromptSteps) << "\"" << ","
-     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\"" << ","
-     << "\n  \"compFailSteps\":\""  << replace_nl(settings.compFailSteps) << "\"" << ","
-     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\"" << ","
-     << "\n  \"testFailSteps\":\""  << replace_nl(settings.testFailSteps) << "\"" << ","
-     << "\n  \"useOptReport\":"     << as_string(settings.useOptReport) << ","
+     << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
+     << "\n  \"successPrompt\":\""  << replace_nl(settings.successPrompt) << "\","
+     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\","
+     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\","
      << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
      << "\n  \"iterations\":"       << settings.iterations
      << "\n}" << std::endl;
@@ -1350,18 +1435,16 @@ Settings loadConfig(const std::string& configFileName)
     config.newFileExt     = loadField(cnfobj, "newFileExt",      config.newFileExt);
     config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
     config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
-    config.onePromptTask  = loadField(cnfobj, "onePromptTask",   config.onePromptTask);
-    config.onePromptSteps = loadField(cnfobj, "onePromptSteps",  config.onePromptSteps);
-    config.compFailPrompt = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
-    config.compFailSteps  = loadField(cnfobj, "compFailSteps",   config.compFailSteps);
-    config.testFailPrompt = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
-    config.testFailSteps  = loadField(cnfobj, "testFailSteps",   config.testFailSteps);
     config.systemText     = loadField(cnfobj, "systemText",      config.systemText);
     config.systemTextFile = loadField(cnfobj, "systemTextFile",  config.systemTextFile);
     config.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.roleOfAI);
-    config.useOptReport   = loadField(cnfobj, "useOptReport",    config.useOptReport);
     config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
     config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
+
+    config.firstPrompt    = loadField(cnfobj, "firstPrompt",     config.firstPrompt);
+    config.successPrompt  = loadField(cnfobj, "successPrompt",   config.successPrompt);
+    config.compFailPrompt = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
+    config.testFailPrompt = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
 
     settings = std::move(config);
   }
@@ -1497,6 +1580,8 @@ struct CmdLineProc
       opts.harness = arg.substr(pharness.size());
     else if (arg.rfind(pkernel, 0) != std::string::npos)
       opts.kernel = parseSourceRange(arg.substr(pkernel.size()));
+    else if (arg.rfind(pcsvsummary, 0) != std::string::npos)
+      opts.csvsummary = arg.substr(pcsvsummary.size());
     else
       opts.all.push_back(arg);
   }
@@ -1514,6 +1599,7 @@ struct CmdLineProc
   static std::string pconfig;
   static std::string pharness;
   static std::string pkernel;
+  static std::string pcsvsummary;
 };
 
 std::string CmdLineProc::phelp          = "--help";
@@ -1525,6 +1611,7 @@ std::string CmdLineProc::pcreateconfig2 = "--create-config=";
 std::string CmdLineProc::pconfig        = "--config=";
 std::string CmdLineProc::pharness       = "--harness-param=";
 std::string CmdLineProc::pkernel        = "--kernel=";
+std::string CmdLineProc::pcsvsummary    = "--csvsummary=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
@@ -1542,12 +1629,12 @@ struct Revision : RevisionBase
   const TestResult&  result()   const { return std::get<1>(*this); }
 };
 
-struct RevisionPrinter
+struct ResultPrinter
 {
   const Revision& obj;
 };
 
-std::ostream& operator<<(std::ostream& os, const RevisionPrinter& el)
+std::ostream& operator<<(std::ostream& os, const ResultPrinter& el)
 {
   constexpr std::size_t filenamelen = 20;
   constexpr std::size_t prefix      = 4;
@@ -1561,6 +1648,16 @@ std::ostream& operator<<(std::ostream& os, const RevisionPrinter& el)
     os << vw << std::setw(filenamelen - vw.size()) << "";
 
   return os << ": " << TestResultPrinter{ el.obj.result() };
+}
+
+struct CsvResultPrinter
+{
+  const Revision& obj;
+};
+
+std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
+{
+  return os << el.obj.fileName() << "," << TestResultPrinter{ el.obj.result(), "," };
 }
 
 
@@ -1613,6 +1710,13 @@ initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
   return { fileName, invokeTestScript(settings, fileName, cmdlnargs.harness) };
 }
 
+template <class Printer>
+void reportResults(std::ostream& os, const std::vector<Revision>& variants)
+{
+  for (const Revision& r : variants)
+    os << Printer{r} << std::endl;
+}
+
 
 int main(int argc, char** argv)
 {
@@ -1642,9 +1746,12 @@ int main(int argc, char** argv)
 
   Settings          settings   = loadConfig(cmdlnargs.configFileName);
 
-  std::cout << "Settings: ";
-  writeSettings(std::cout, settings);
-  std::cout << std::endl;
+  std::cerr << "Settings: ";
+  writeSettings(std::cerr, settings);
+  std::cerr << std::endl;
+
+  std::cerr << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
+            << std::endl;
 
   CompilationResult compres    = compileResult(settings, cmdlnargs);
   int               iterations = settings.iterations;
@@ -1672,16 +1779,22 @@ int main(int argc, char** argv)
     {
       --iterations;
 
-      const bool promptAI = iterations != 0;
+      const bool  promptAI = iterations != 0;
 
       storeQuery(settings, query);
       invokeAI(settings);
 
       std::string response = loadAIResponse(settings);
-      std::string newFile  = storeGeneratedFile(settings, cmdlnargs, response);
+      std::string newFile;
+      SourceRange kernelrange;
+
+      std::tie(newFile, kernelrange) = storeGeneratedFile(settings, cmdlnargs, response);
+
+      std::cerr << "Iteration: " << newFile << "@" << kernelrange
+                << std::endl;
 
       query   = appendResponse(settings, std::move(query), response);
-      compres = compileResult(settings, cmdlnargs, newFile);
+      compres = compileResult(settings, cmdlnargs, newFile, kernelrange);
 
       if (compres.success())
       {
@@ -1701,8 +1814,13 @@ int main(int argc, char** argv)
           }
           else if (promptAI)
           {
+            std::string prompt = expandPrompt( settings.successPrompt,
+                                               { {"report", compres.output()}
+                                               }
+                                             );
+
             // \todo add quality assessment to prompt
-            query = appendSuccessPrompt(settings, std::move(query), compres.output(), variants.back().fileName());
+            query = appendPrompt(std::move(query), std::move(prompt));
           }
         }
         else
@@ -1711,12 +1829,12 @@ int main(int argc, char** argv)
 
           if (promptAI)
           {
-            std::string prompt = settings.testFailPrompt;
+            std::string prompt = expandPrompt( settings.compFailPrompt,
+                                               { {"report", variants.back().result().errors()}
+                                               }
+                                             );
 
-            prompt += variants.back().result().errors();
-            prompt += settings.testFailSteps;
-
-            query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
+            query = appendPrompt(std::move(query), std::move(prompt));
           }
         }
       }
@@ -1729,12 +1847,12 @@ int main(int argc, char** argv)
 
         if (promptAI)
         {
-          std::string prompt = settings.compFailPrompt;
+          std::string prompt = expandPrompt( settings.testFailPrompt,
+                                             { {"report", compres.output()}
+                                             }
+                                           );
 
-          prompt += compres.output();
-          prompt += settings.compFailSteps;
-
-          query = appendFailurePrompt(std::move(query), prompt, variants.back().fileName());
+          query = appendPrompt(std::move(query), std::move(prompt));
         }
       }
     }
@@ -1756,10 +1874,16 @@ int main(int argc, char** argv)
   // store query and results for review
   storeQuery(settings, query);
 
-  for (const Revision& r : variants)
-    std::cout << RevisionPrinter{r} << std::endl;
+  // \todo go over results and rank them based on success and results
+  reportResults<ResultPrinter>(std::cout, variants);
 
-  // go over results and rank them based on success and results
+  if (cmdlnargs.csvsummary.size())
+  {
+    std::ofstream of{cmdlnargs.csvsummary, std::ios_base::app};
+
+    of << "---" << std::endl;
+    reportResults<CsvResultPrinter>(of, variants);
+  }
 
   return 0;
 }

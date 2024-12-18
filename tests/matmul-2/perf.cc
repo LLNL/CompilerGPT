@@ -38,6 +38,11 @@ SimpleMatrix mul(const SimpleMatrix& lhs, const SimpleMatrix& rhs)
   return res;
 }
 
+void fail(const char* msg)
+{
+  throw std::runtime_error(msg);
+}
+
 void assert_equal(int lhs, int rhs, const char* msg)
 {
   if (lhs != rhs)
@@ -55,6 +60,7 @@ void assert_equal_size(const SimpleMatrix& lhs, const SimpleMatrix& rhs)
   assert_equal(lhs.columns(), rhs.columns(), "number of columns is incorrect");
   assert_equal(lhs.rows(),    rhs.rows(),    "number of rows is incorrect");
 }
+
 
 
 void assert_equal(const SimpleMatrix& lhs, const SimpleMatrix& rhs)
@@ -79,6 +85,23 @@ void assert_datatype_size()
   assert_equal_size(res, exp);
   assert_equal(res(0,0), exp(0,0), "datatype too short; use SimpleMatrix::value_type");
 }
+
+void assert_size_check()
+{
+  SimpleMatrix lhs{3, 3};
+  SimpleMatrix rhs{2, 2};
+
+  try
+  {
+    SimpleMatrix res = lhs * rhs;
+
+    fail("matrix dimension check failed. throw a std::runtime_error when dimensions do not match.");
+  }
+  catch (const std::runtime_error&)
+  {
+  }
+}
+
 
 int main()
 {

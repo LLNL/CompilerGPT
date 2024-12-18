@@ -23,16 +23,3 @@ SimpleMatrix operator*(const SimpleMatrix& lhs, const SimpleMatrix& rhs)
   return res;
 }
 
-SimpleMatrix::value_type 
-sumElements(const SimpleMatrix& m)
-{
-  SimpleMatrix::value_type res = 0;
-  
-  for (int i = 0; i < m.columns(); ++i)
-    for (int j = 0; j < m.rows(); ++j)
-      res += m(j, i);
-
-  return res;
-}
-
-

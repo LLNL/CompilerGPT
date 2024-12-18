@@ -1,3 +1,5 @@
+-include env.mk
+
 
 BUILD_TYPE ?= debug
 PROJECT_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))

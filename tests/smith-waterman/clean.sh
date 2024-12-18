@@ -1,2 +1,2 @@
 rm -f *.o nohup.out query.json response.txt
-rm -f simplematrix[0-9]*.cc
+rm -f core[0-9]*.cc
