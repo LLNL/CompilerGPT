@@ -1,0 +1,4 @@
+{
+  "validate":"\\bSUCCESSFUL",
+  "timing":"Time in seconds =[\" \"]+(\\d+\\.\\d+)"
+}

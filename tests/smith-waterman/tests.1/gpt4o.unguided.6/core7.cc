@@ -1,0 +1,57 @@
+
+#include <cstddef>  // For std::size_t
+#include "constants.h"
+
+namespace
+{
+
+inline int computeDiagScore(const char* a, const char* b, long long int j, long long int i) {
+    return (a[j - 1] == b[i - 1]) ? matchScore : missmatchScore;
+}
+
+void similarityScore(const char* a, const char* b,
+                     long long int i, long long int j, long long int m,
+                     int* H, int* P,
+                     long long int* maxPos)
+{
+    const long long int index = m * i + j;
+    int* baseH = &H[index];
+
+    // Access patterns aligned with forward increments
+    const int up = *(baseH - m) + gapScore;
+    const int left = *(baseH - 1) + gapScore;
+    const int diag = *(baseH - m - 1) + computeDiagScore(a, b, j, i);
+
+    // Compact determination of max and pred
+    int max = diag > 0 ? diag : 0;
+    int pred = diag > 0 ? DIAGONAL : NONE;
+
+    if (up > max) {
+        max = up;
+        pred = UP;
+    }
+
+    if (left > max) {
+        max = left;
+        pred = LEFT;
+    }
+
+    *baseH = max;
+    P[index] = pred;
+
+    if (max > H[*maxPos]) {
+        *maxPos = index;
+    }
+}
+
+}
+
+void compute(const char* a, const char* b, int* H, int* P, long long int n, long long int m, long long int& maxPos)
+{
+    // Initialize the first row and column (if necessary) -- assumes zero initialization if that's the specification.
+    for (long long int i = 1; i < n; ++i) {
+        for (long long int j = 1; j < m; ++j) {
+            similarityScore(a, b, i, j, m, H, P, &maxPos);
+        }
+    }
+}

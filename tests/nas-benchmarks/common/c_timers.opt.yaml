@@ -1,0 +1,333 @@
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+Function:        elapsed_time
+Args:
+  - Callee:          wtime_
+  - String:          ' will not be inlined into '
+  - Caller:          elapsed_time
+    DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+Function:        elapsed_time
+Args:
+  - Callee:          wtime_
+  - String:          ' will not be inlined into '
+  - Caller:          elapsed_time
+    DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: c_timers.c, Line: 16, Column: 13 }
+Function:        elapsed_time
+Args:
+  - String:          'load of type '
+  - Type:            double
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+...
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: c_timers.c, Line: 36, Column: 16 }
+Function:        timer_start
+Args:
+  - String:          ''''
+  - Callee:          elapsed_time
+    DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+  - String:          ''' inlined into '''
+  - Caller:          timer_start
+    DebugLoc:        { File: c_timers.c, Line: 35, Column: 0 }
+  - String:          ''''
+  - String:          ' with '
+  - String:          '(cost='
+  - Cost:            '15'
+  - String:          ', threshold='
+  - Threshold:       '375'
+  - String:          ')'
+  - String:          ' at callsite '
+  - String:          timer_start
+  - String:          ':'
+  - Line:            '2'
+  - String:          ':'
+  - Column:          '16'
+  - String:          ';'
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: c_timers.c, Line: 16, Column: 13 }
+Function:        timer_start
+Args:
+  - String:          'load of type '
+  - Type:            double
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+...
+--- !Passed
+Pass:            inline
+Name:            Inlined
+DebugLoc:        { File: c_timers.c, Line: 47, Column: 11 }
+Function:        timer_stop
+Args:
+  - String:          ''''
+  - Callee:          elapsed_time
+    DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+  - String:          ''' inlined into '''
+  - Caller:          timer_stop
+    DebugLoc:        { File: c_timers.c, Line: 44, Column: 0 }
+  - String:          ''''
+  - String:          ' with '
+  - String:          '(cost='
+  - Cost:            '15'
+  - String:          ', threshold='
+  - Threshold:       '375'
+  - String:          ')'
+  - String:          ' at callsite '
+  - String:          timer_stop
+  - String:          ':'
+  - Line:            '4'
+  - String:          ':'
+  - Column:          '11'
+  - String:          ';'
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: c_timers.c, Line: 16, Column: 13 }
+Function:        timer_stop
+Args:
+  - String:          'load of type '
+  - Type:            double
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: c_timers.c, Line: 48, Column: 15 }
+Function:        timer_stop
+Args:
+  - String:          'load of type '
+  - Type:            double
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: c_timers.c, Line: 49, Column: 16 }
+Function:        timer_stop
+Args:
+  - String:          'load of type '
+  - Type:            double
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: c_timers.c, Line: 15, Column: 5 }
+...
+--- !Missed
+Pass:            slp-vectorizer
+Name:            NotPossible
+DebugLoc:        { File: c_timers.c, Line: 16, Column: 13 }
+Function:        timer_stop
+Args:
+  - String:          'Cannot SLP vectorize list: vectorization was impossible'
+  - String:          ' with available vectorization factors'
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+Function:        elapsed_time
+Args:
+  - NumStackBytes:   '8'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        elapsed_time
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '6'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_timers.c, Line: 12, Column: 0 }
+Function:        elapsed_time
+Args:
+  - NumInstructions: '6'
+  - String:          ' instructions in function'
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_timers.c, Line: 26, Column: 0 }
+Function:        timer_clear
+Args:
+  - NumStackBytes:   '0'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: c_timers.c, Line: 27, Column: 5 }
+Function:        timer_clear
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '3'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_timers.c, Line: 26, Column: 0 }
+Function:        timer_clear
+Args:
+  - NumInstructions: '3'
+  - String:          ' instructions in function'
+...
+--- !Missed
+Pass:            regalloc
+Name:            SpillReloadCopies
+DebugLoc:        { File: c_timers.c, Line: 34, Column: 1 }
+Function:        timer_start
+Args:
+  - NumVRCopies:     '1'
+  - String:          ' virtual registers copies '
+  - TotalCopiesCost: '1.000000e+00'
+  - String:          ' total copies cost '
+  - String:          generated in function
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_timers.c, Line: 35, Column: 0 }
+Function:        timer_start
+Args:
+  - NumStackBytes:   '24'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        timer_start
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '11'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_timers.c, Line: 35, Column: 0 }
+Function:        timer_start
+Args:
+  - NumInstructions: '11'
+  - String:          ' instructions in function'
+...
+--- !Missed
+Pass:            regalloc
+Name:            SpillReloadCopies
+DebugLoc:        { File: c_timers.c, Line: 43, Column: 1 }
+Function:        timer_stop
+Args:
+  - NumVRCopies:     '1'
+  - String:          ' virtual registers copies '
+  - TotalCopiesCost: '1.000000e+00'
+  - String:          ' total copies cost '
+  - String:          generated in function
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_timers.c, Line: 44, Column: 0 }
+Function:        timer_stop
+Args:
+  - NumStackBytes:   '24'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        timer_stop
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '13'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_timers.c, Line: 44, Column: 0 }
+Function:        timer_stop
+Args:
+  - NumInstructions: '13'
+  - String:          ' instructions in function'
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_timers.c, Line: 58, Column: 0 }
+Function:        timer_read
+Args:
+  - NumStackBytes:   '0'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: c_timers.c, Line: 59, Column: 13 }
+Function:        timer_read
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '3'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_timers.c, Line: 58, Column: 0 }
+Function:        timer_read
+Args:
+  - NumInstructions: '3'
+  - String:          ' instructions in function'
+...

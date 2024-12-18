@@ -1,0 +1,601 @@
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 30, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 32, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 35, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 37, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 39, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 41, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 43, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 45, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 47, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 50, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 52, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 54, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 56, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 58, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 60, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 62, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 64, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 66, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 68, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 70, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 72, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 30, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 32, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 35, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 37, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 39, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 41, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 43, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 45, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 47, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 50, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 52, Column: 9 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 54, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 56, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 58, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          puts
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 60, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 62, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 64, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 66, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 68, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 70, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: c_print_results.c, Line: 72, Column: 5 }
+Function:        c_print_results
+Args:
+  - Callee:          printf
+  - String:          ' will not be inlined into '
+  - Caller:          c_print_results
+    DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            regalloc
+Name:            SpillReloadCopies
+DebugLoc:        { File: c_print_results.c, Line: 7, Column: 1 }
+Function:        c_print_results
+Args:
+  - NumSpills:       '13'
+  - String:          ' spills '
+  - TotalSpillsCost: '1.300000e+01'
+  - String:          ' total spills cost '
+  - NumReloads:      '12'
+  - String:          ' reloads '
+  - TotalReloadsCost: '1.200000e+01'
+  - String:          ' total reloads cost '
+  - NumFoldedReloads: '1'
+  - String:          ' folded reloads '
+  - TotalFoldedReloadsCost: '1.000000e+00'
+  - String:          ' total folded reloads cost '
+  - NumVRCopies:     '14'
+  - String:          ' virtual registers copies '
+  - TotalCopiesCost: '1.223810e+01'
+  - String:          ' total copies cost '
+  - String:          generated in function
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+Function:        c_print_results
+Args:
+  - NumStackBytes:   '152'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        c_print_results
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '48'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: c_print_results.c, Line: 37, Column: 9 }
+Function:        c_print_results
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '7'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: c_print_results.c, Line: 35, Column: 9 }
+Function:        c_print_results
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '4'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: c_print_results.c, Line: 39, Column: 5 }
+Function:        c_print_results
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '70'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: c_print_results.c, Line: 27, Column: 0 }
+Function:        c_print_results
+Args:
+  - NumInstructions: '129'
+  - String:          ' instructions in function'
+...

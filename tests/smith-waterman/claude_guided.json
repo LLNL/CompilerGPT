@@ -1,0 +1,21 @@
+{
+  "invokeai":"../../scripts/claude/exec-claude.sh",
+  "optcompiler":"/usr/bin/clang",
+  "optreport":"-Rpass-missed=.",
+  "optcompile":"-O3 -march=native -DNDEBUG=1 -c",
+  "queryFile":"query.json",
+  "responseFile":"response.json",
+  "responseField":"content[0].text",
+  "testScript":"./eval.sh",
+  "inputLang":"cpp",
+  "outputLang":"cpp",
+  "systemText":"You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.",
+  "roleOfAI":"assistant",
+  "systemTextFile":"system.txt",
+  "firstPrompt":"Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Recognize the coding patterns.\nTask 2: Make pattern specific optimizations to the code. Do not use OpenMP.\nTask 3: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 4: Use the prioritized list to improve the input code further.",
+  "successPrompt":"The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.",
+  "compFailPrompt":"This version did not compile. Here are the error messages:\n<<report>>\nTry again.",
+  "testFailPrompt":"This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.",
+  "stopOnSuccess":false,
+  "iterations":10
+}

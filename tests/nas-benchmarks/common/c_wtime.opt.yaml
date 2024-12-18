@@ -1,0 +1,210 @@
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+Function:        wtime_
+Args:
+  - Callee:          gettimeofday
+  - String:          ' will not be inlined into '
+  - Caller:          wtime_
+    DebugLoc:        { File: '../common/wtime.c', Line: 5, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            inline
+Name:            NoDefinition
+DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+Function:        wtime_
+Args:
+  - Callee:          gettimeofday
+  - String:          ' will not be inlined into '
+  - Caller:          wtime_
+    DebugLoc:        { File: '../common/wtime.c', Line: 5, Column: 0 }
+  - String:          ' because its definition is unavailable'
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 9, Column: 7 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i32
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 9, Column: 25 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i64
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 12 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i64
+  - String:          ' not eliminated'
+  - String:          ' in favor of '
+  - OtherAccess:     load
+    DebugLoc:        { File: '../common/wtime.c', Line: 9, Column: 25 }
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Passed
+Pass:            gvn
+Name:            LoadPRE
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 12 }
+Function:        wtime_
+Args:
+  - String:          load eliminated by PRE
+...
+--- !Passed
+Pass:            gvn
+Name:            LoadElim
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 21 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i32
+  - String:          ' eliminated'
+  - String:          ' in favor of '
+  - InfavorOfValue:  phi
+    DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 21 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 38 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i64
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 9, Column: 7 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i32
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 12 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i64
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            gvn
+Name:            LoadClobbered
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 38 }
+Function:        wtime_
+Args:
+  - String:          'load of type '
+  - Type:            i64
+  - String:          ' not eliminated'
+  - String:          ' because it is clobbered by '
+  - ClobberedBy:     call
+    DebugLoc:        { File: '../common/wtime.c', Line: 8, Column: 3 }
+...
+--- !Missed
+Pass:            regalloc
+Name:            SpillReloadCopies
+DebugLoc:        { File: '../common/wtime.c', Line: 4, Column: 1 }
+Function:        wtime_
+Args:
+  - NumVRCopies:     '2'
+  - String:          ' virtual registers copies '
+  - TotalCopiesCost: '1.380952e+00'
+  - String:          ' total copies cost '
+  - String:          generated in function
+...
+--- !Analysis
+Pass:            prologepilog
+Name:            StackSize
+DebugLoc:        { File: '../common/wtime.c', Line: 5, Column: 0 }
+Function:        wtime_
+Args:
+  - NumStackBytes:   '24'
+  - String:          ' stack bytes in function'
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+Function:        wtime_
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '10'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: '../common/wtime.c', Line: 9, Column: 20 }
+Function:        wtime_
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '2'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionMix
+DebugLoc:        { File: '../common/wtime.c', Line: 10, Column: 21 }
+Function:        wtime_
+Args:
+  - String:          'BasicBlock: '
+  - BasicBlock:      ''
+  - String:          "\n"
+  - String:          ''
+  - String:          ': '
+  - INST_:           '9'
+  - String:          "\n"
+...
+--- !Analysis
+Pass:            asm-printer
+Name:            InstructionCount
+DebugLoc:        { File: '../common/wtime.c', Line: 5, Column: 0 }
+Function:        wtime_
+Args:
+  - NumInstructions: '21'
+  - String:          ' instructions in function'
+...

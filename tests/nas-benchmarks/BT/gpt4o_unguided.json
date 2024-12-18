@@ -1,0 +1,21 @@
+{
+  "invokeai":"../../../scripts/gpt4/exec-gpt-4o.sh",
+  "optcompiler":"/usr/bin/clang",
+  "optreport":"-Rpass-missed=.",
+  "optcompile":"-I../common -O3 -march=native -fopenmp -fsave-optimization-record -save-stats -c",
+  "queryFile":"query.json",
+  "responseFile":"response.txt",
+  "responseField":"",
+  "testScript":"./perftest.sh",
+  "inputLang":"cpp",
+  "outputLang":"cpp",
+  "systemText":"You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.",
+  "roleOfAI":"system",
+  "systemTextFile":"",
+  "firstPrompt":"Given the following input code in C++:\n<<code>>\nTask 1: Recognize the OpenMP coding patterns.\nTask 2: Make pattern specific optimizations to the code.",
+  "successPrompt":"Make further optimizations to the latest version.",
+  "compFailPrompt":"This version did not compile. Here are the error messages:\n<<report>>\nTry again.",
+  "testFailPrompt":"This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.",
+  "stopOnSuccess":false,
+  "iterations":10
+}

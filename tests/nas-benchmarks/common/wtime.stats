@@ -1,0 +1,8 @@
+{
+	"file-search.NumDirCacheMisses": 24,
+	"file-search.NumDirLookups": 79,
+	"file-search.NumFileCacheMisses": 72,
+	"file-search.NumFileLookups": 82,
+	"file-search.NumIncluded": 28,
+	"file-search.NumMultiIncludeFileOptzn": 8
+}
