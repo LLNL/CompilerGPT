@@ -253,11 +253,22 @@ struct CmdLineArgs
   std::vector<std::string> all;
 };
 
+void checkExistance(std::string_view filename)
+{
+  if (std::filesystem::exists(filename)) return;
+
+  std::cerr << "default script " << filename << " not found\n"
+            << "manually modify the generated JSON configuration file!"
+            << std::endl;
+}
+
 
 /// produces base settings for gpt4
 Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 {
   std::string invokeai = args.programPath / "scripts/gpt4/exec-gpt-4o.sh";
+
+  checkExistance(invokeai);
 
   settings.invokeai = invokeai;
 
@@ -268,6 +279,8 @@ Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 Settings setupClaude(Settings settings, const CmdLineArgs& args)
 {
   std::string invokeai = args.programPath / "scripts/claude/exec-claude.sh";
+
+  checkExistance(invokeai);
 
   settings.responseFile   = "response.json";
   settings.responseField  = "content[0].text";
@@ -281,11 +294,13 @@ Settings setupClaude(Settings settings, const CmdLineArgs& args)
 /// produces base settings for a local ollama
 Settings setupOllama(Settings settings, const CmdLineArgs& args)
 {
-  std::string invokeai = args.programPath / "scripts/claude/exec-ollama.sh";
+  std::string invokeai = args.programPath / "scripts/ollama/exec-ollama.sh";
+
+  checkExistance(invokeai);
 
   settings.responseFile   = "response.json";
   settings.responseField  = "message.content";
-  settings.systemTextFile = "system.txt";
+  settings.systemTextFile = std::string{};
   settings.roleOfAI       = "assistant";
   settings.invokeai       = invokeai + " llama3.2";
 
