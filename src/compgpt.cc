@@ -1,3 +1,12 @@
+// CompilerGPT (compgpt)
+//   communicates iteratively with AI models to
+//   - improve code bases with an optional optimization report
+//   - translate code between languages
+//
+// license: SPDX BSD 3-Clause "New" or "Revised" License
+//          see LICENSE file for details
+//
+// authors: pirkelbauer2,liao6 (at) llnl.gov
 
 #include <fstream>
 #include <string>
@@ -5,16 +14,14 @@
 #include <numeric>
 #include <charconv>
 #include <regex>
+#include <filesystem>
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
-//~ #include <boost/filesystem.hpp>
 #include <boost/json/src.hpp>
 #include <boost/algorithm/string.hpp>
 
 //~ #include <boost/algorithm/string/predicate.hpp>
-
-#include <filesystem>
 
 namespace json = boost::json;
 
@@ -126,7 +133,7 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n  The config file only needs entries when a default setting is overridden."
                          ;
 
-/// encapsulates all settings that can be set by a json configuration file.
+/// encapsulates all settings that can be configured through a JSON file.
 struct Settings
 {
   std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
@@ -152,23 +159,13 @@ struct Settings
   std::int64_t iterations     = 1;
 };
 
-/// produces base settings for gpt4
-Settings setupGPT4(Settings settings)
+
+/// returns the absolute path for an existing file path \p filename.
+std::filesystem::path absolutePath(std::string_view filename)
 {
-  return settings;
+  return std::filesystem::absolute(std::filesystem::path{filename}).remove_filename();
 }
 
-/// produces base settings for claude
-Settings setupClaude(Settings settings)
-{
-  settings.responseFile   = "response.json";
-  settings.responseField  = "content[0].text";
-  settings.systemTextFile = "system.txt";
-  settings.roleOfAI       = "assistant";
-  settings.invokeai       = "./scripts/claude/exec-claude.sh";
-
-  return settings;
-}
 
 /// a source code location
 using SourcePointBase = std::tuple<std::size_t, std::size_t>;
@@ -243,17 +240,59 @@ operator<<(std::ostream& os, SourceRange p)
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
-  enum Model { none = 0, error = 1, gpt4 = 2, claude = 3 };
+  enum Model { none = 0, error = 1, gpt4 = 2, claude = 3, ollama = 4 };
 
   bool                     help              = false;
   bool                     helpConfig        = false;
   Model                    configModel       = none;
   std::string              configFileName    = "compgpt.json";
   std::string              harness           = "";
+  std::filesystem::path    programPath       = "compgpt.bin";
   SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
   std::string              csvsummary        = "";
   std::vector<std::string> all;
 };
+
+
+/// produces base settings for gpt4
+Settings setupGPT4(Settings settings, const CmdLineArgs& args)
+{
+  std::string invokeai = args.programPath / "scripts/gpt4/exec-gpt-4o.sh";
+
+  settings.invokeai = invokeai;
+
+  return settings;
+}
+
+/// produces base settings for claude
+Settings setupClaude(Settings settings, const CmdLineArgs& args)
+{
+  std::string invokeai = args.programPath / "scripts/claude/exec-claude.sh";
+
+  settings.responseFile   = "response.json";
+  settings.responseField  = "content[0].text";
+  settings.systemTextFile = "system.txt";
+  settings.roleOfAI       = "assistant";
+  settings.invokeai       = invokeai;
+
+  return settings;
+}
+
+/// produces base settings for a local ollama
+Settings setupOllama(Settings settings, const CmdLineArgs& args)
+{
+  std::string invokeai = args.programPath / "scripts/claude/exec-ollama.sh";
+
+  settings.responseFile   = "response.json";
+  settings.responseField  = "message.content";
+  settings.systemTextFile = "system.txt";
+  settings.roleOfAI       = "assistant";
+  settings.invokeai       = invokeai + " llama3.2";
+
+  return settings;
+}
+
+
 
 /// returns a C string for a boolean. If \p align is set true gets a trailing blank.
 /// the returned string must not be freed or overwritten.
@@ -266,25 +305,27 @@ const char* as_string(bool v, bool align = false)
 }
 
 /// creates default settings for supported AI models.
-Settings modelDefaults(CmdLineArgs::Model m)
+Settings modelDefaults(CmdLineArgs::Model m, const CmdLineArgs& args)
 {
-  Settings defaults;
+  using SetupFn    = std::function<Settings(Settings, const CmdLineArgs&)>;
+  using ModelSetup = std::unordered_map<CmdLineArgs::Model, SetupFn>;
 
-  if (m == CmdLineArgs::gpt4)   return setupGPT4(defaults);
-  if (m == CmdLineArgs::claude) return setupClaude(defaults);
-
-  throw std::runtime_error{"Cannot configure unknown model."};
+  static const ModelSetup modelSetup = { { CmdLineArgs::gpt4,   setupGPT4 },
+                                         { CmdLineArgs::claude, setupClaude },
+                                         { CmdLineArgs::ollama, setupOllama }
+                                       };
+  try
+  {
+    return modelSetup.at(m)(Settings{}, args);
+  }
+  catch (...)
+  {
+    throw std::runtime_error{"Cannot configure unknown model."};
+  }
 }
 
 }
 
-/*
-struct CompilationError : std::runtime_error
-{
-  using base = std::runtime_error;
-  using base::base;
-};
-*/
 
 /// returns C-style command line arguments as std::vector<std::string>
 std::vector<std::string>
@@ -338,7 +379,8 @@ struct CompilationResult : CompilationResultBase
   bool               success() const { return std::get<1>(*this); }
 };
 
-
+/// separates a string \p s at whitespaces and appends them as individual
+///   command line arguments to a vector \p args.
 void splitArgs(const std::string& s, std::vector<std::string>& args)
 {
   std::istringstream all{s};
@@ -348,6 +390,8 @@ void splitArgs(const std::string& s, std::vector<std::string>& args)
     args.emplace_back(std::move(arg));
 }
 
+/// separates a string \p input at an configurable whitespace \p splitch and returns
+///   them as vector<string>.
 std::vector<std::string>
 splitString(const std::string& input, char splitch = '\n')
 {
@@ -369,6 +413,8 @@ splitString(const std::string& input, char splitch = '\n')
 }
 
 using DiagnosticBase = std::tuple<std::string, SourcePoint, std::vector<std::string> >;
+
+/// encapsulates diagnostic output (warnings, errors, optimization diagnostics).
 struct Diagnostic : DiagnosticBase
 {
   using base = DiagnosticBase;
@@ -385,6 +431,7 @@ struct Diagnostic : DiagnosticBase
   std::vector<std::string>& message()  { return std::get<2>(*this); }
 };
 
+/// uses a regex to find a file location within a string \p s.
 std::tuple<std::string, SourcePoint>
 fileLocation(const std::string& s)
 {
@@ -400,7 +447,8 @@ fileLocation(const std::string& s)
   return {};
 }
 
-
+/// processes a log to capture diagnostic output together with its location information.
+/// filters out any include header trace.
 struct DiagnosticFilter2
 {
   void appendCurrentDiagnostic()
@@ -443,122 +491,8 @@ struct DiagnosticFilter2
   std::vector<Diagnostic> diagnosed;
 };
 
-#if 0
-struct DiagnosticFilter
-{
-  // returns the line number (expected to be at the beginning of line).
-  //   if no line number can be found return max(std::size_t) to indicate
-  //   a non match.
-  std::size_t lineNumber(std::string_view line) const
-  {
-    if (line.at(0) == ':') line.remove_prefix(1);
 
-    std::size_t res;
-    auto const  result = std::from_chars(line.data(), line.data() + line.size(), res);
-
-    if (result.ptr == line.data())
-    {
-      std::cerr << "unable to find line number in: " << line
-                << std::endl;
-      return std::numeric_limits<std::size_t>::max();
-    }
-
-    return res;
-  }
-
-  bool isMainFile(std::string_view line) const
-  {
-    std::size_t const pos = line.find(mainFile);
-
-    if (pos == std::string::npos)
-      return false;
-
-    if (rng.empty())
-      return true;
-
-    line.remove_prefix(pos+mainFile.size());
-
-    std::size_t const ln = lineNumber(line);
-    std::cerr << "ln = " << ln << std::endl;
-
-    return (rng.beg().line() <= ln) && (ln < rng.lim().line());
-  };
-
-  void moveMessageToResult()
-  {
-    auto const beg = std::make_move_iterator(pendingMessageTrace.begin());
-    auto const lim = std::make_move_iterator(pendingMessageTrace.end());
-
-    std::copy( beg, lim, std::back_inserter(res) );
-    pendingMessageTrace.clear();
-    pendingIncludeTrace.clear();
-  }
-
-  void operator()(const std::string& s)
-  {
-    const bool isIncludeTrace = s.rfind("In file included from", 0) == 0;
-
-    if (!isIncludeTrace)
-    {
-      if (isMainFile(s))
-      {
-        if (refsMainFile)
-        {
-          std::cerr << "+m1 " << s << std::endl;
-          moveMessageToResult();
-        }
-        else
-        {
-          std::cerr << "-c1 " << s << std::endl;
-          pendingMessageTrace.clear();
-          refsMainFile = true;
-        }
-      }
-      else if (refsMainFile)
-      {
-        std::cerr << "+m2 " << s << std::endl;
-        moveMessageToResult();
-        refsMainFile = false;
-      }
-      //~ else
-      //~ {
-        //~ std::cerr << "-c2 " << s << std::endl;
-        //~ pendingMessageTrace.clear();
-      //~ }
-
-      std::cerr << "+p1 " << s << std::endl;
-      pendingMessageTrace.push_back(s);
-    }
-    else if (pendingMessageTrace.empty())
-    {
-      std::cerr << "+p2 " << s << std::endl;
-      pendingIncludeTrace.push_back(s);
-    }
-    else if (refsMainFile)
-    {
-      refsMainFile = false;
-      std::cerr << "+m2 " << std::endl;
-      moveMessageToResult();
-    }
-  }
-
-  operator std::vector<std::string>() &&
-  {
-    moveMessageToResult();
-    return std::move(res);
-  }
-
-  std::string_view         mainFile;
-  SourceRange              rng;
-  bool                     refsMainFile         = false;
-  std::vector<std::string> pendingIncludeTrace  = {};
-  std::vector<std::string> pendingMessageTrace  = {};
-  std::vector<std::string> res                  = {};
-};
-#endif
-
-// std::string
-
+/// filters diagnostic output for source location
 CompilationResult
 filterMessageOutput(const std::string& out, std::string_view filename, SourceRange rng, bool success)
 {
@@ -601,7 +535,7 @@ filterMessageOutput(const std::string& out, std::string_view filename, SourceRan
          };
 }
 
-
+/// calls the compiler component
 CompilationResult
 invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std::string> args)
 {
@@ -710,6 +644,7 @@ void invokeAI(const Settings& settings)
   if (ec != 0) throw std::runtime_error{"AI invocation error."};
 }
 
+/// returns nan for a given floating point type \p F.
 template <class F>
 F nanValue() { return std::numeric_limits<F>::quiet_NaN(); }
 
@@ -752,6 +687,7 @@ testScore(bool success, std::string_view s)
 
 using TestResultBase = std::tuple<bool, long double, std::string>;
 
+/// encapsulates test results
 struct TestResult : TestResultBase
 {
   using base = TestResultBase;
@@ -773,6 +709,7 @@ std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
   return os << as_string(el.obj.success(), true) << el.sep << el.obj.score();
 }
 
+/// invokes the test script
 TestResult
 invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
 {
@@ -831,6 +768,8 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 
 using PlaceholderBase = std::tuple<std::size_t, std::string>;
 
+/// encapsulates any text placeholder that gets substituted with
+///   programmatic information (reports, source code).
 struct Placeholder : PlaceholderBase
 {
   using base = PlaceholderBase;
@@ -864,6 +803,7 @@ Placeholder::find(std::string_view prompt)
 
 using PlaceholderMap = std::unordered_map<std::string_view, std::string>;
 
+/// replaces known placeholders with their text
 std::string
 expandPrompt(std::string_view prompt, PlaceholderMap m)
 {
@@ -886,10 +826,9 @@ expandPrompt(std::string_view prompt, PlaceholderMap m)
 }
 
 
-std::string loadCodeQuery( const Settings& settings,
-                           const std::string& filename,
-                           SourceRange rng
-                         )
+/// loads the specified subsection of a code into a string.
+std::string
+loadCodeQuery(const Settings& settings, const std::string& filename, SourceRange rng)
 {
   std::stringstream txt;
 
@@ -921,7 +860,9 @@ std::string loadCodeQuery( const Settings& settings,
   return txt.str();
 }
 
-json::value initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output)
+/// generates a conversation history containing the first prompt.
+json::value
+initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output)
 {
   // do not generate a prompt in this case
   if (settings.iterations == 0)
@@ -961,7 +902,7 @@ json::value initialPrompt(const Settings& settings, const CmdLineArgs& args, std
   return res;
 }
 
-
+/// appends a prompt \p prompt to a conversation history \p val.
 json::value
 appendPrompt(json::value val, std::string prompt)
 {
@@ -975,7 +916,7 @@ appendPrompt(json::value val, std::string prompt)
   return val;
 }
 
-
+/// appends a response \p response to a conversation history \p val.
 json::value
 appendResponse(const Settings& settings, json::value val, std::string response)
 {
@@ -989,6 +930,8 @@ appendResponse(const Settings& settings, json::value val, std::string response)
   return val;
 }
 
+/// writes out conversation history to a file so it can be used for the
+///   next AI invocation.
 void storeQuery(const Settings& settings, const json::value& query)
 {
   std::ofstream queryfile{settings.queryFile};
@@ -996,6 +939,7 @@ void storeQuery(const Settings& settings, const json::value& query)
   queryfile << query << std::endl;
 }
 
+/// parses JSON input from a line.
 json::value
 parseJsonLine(std::string line)
 {
@@ -1012,6 +956,7 @@ parseJsonLine(std::string line)
   return p.release();
 }
 
+/// processes a JSON stream.
 json::value
 readJsonFile(std::istream& is)
 {
@@ -1163,13 +1108,7 @@ copyFromOriginalFile( std::string_view fileName,
   std::string           line;
   std::size_t           linectr = 1;
 
-  //~ std::cerr << "skip " << linectr << " < " << beg
-            //~ << std::endl;
-
   while ((linectr < beg.line()) && std::getline(inp, line)) ++linectr;
-
-  //~ std::cerr << "copy " << linectr << " < " << lim
-            //~ << std::endl;
 
   // copy code segment
   while ((linectr < lim.line()) && std::getline(inp, line))
@@ -1249,6 +1188,7 @@ readTxtFile(std::istream& is)
   return res;
 }
 
+/// extracts a json string with a known path from a json value.
 std::string jsonField(const json::value& val, std::string_view fld)
 {
   std::cerr << '{' << val << '}'
@@ -1300,7 +1240,7 @@ std::string jsonField(const json::value& val, std::string_view fld)
   return jsonField(obj.at(lhs), fld.substr(pos));
 }
 
-
+/// loads the AI response from a JSON object
 std::string loadAIResponseJson(const Settings& settings)
 {
   std::ifstream responseFile{settings.responseFile};
@@ -1308,7 +1248,7 @@ std::string loadAIResponseJson(const Settings& settings)
   return jsonField(readJsonFile(responseFile), settings.responseField);
 }
 
-
+/// loads the AI response from a text file
 std::string loadAIResponseTxt(const Settings& settings)
 {
   std::ifstream responseFile{settings.responseFile};
@@ -1316,6 +1256,7 @@ std::string loadAIResponseTxt(const Settings& settings)
   return readTxtFile(responseFile);
 }
 
+/// loads the AI response
 std::string loadAIResponse(const Settings& settings)
 {
   const std::string jsonSuffix{".JSON"};
@@ -1326,7 +1267,7 @@ std::string loadAIResponse(const Settings& settings)
   return loadAIResponseTxt(settings);
 }
 
-
+/// queries a string field from a JSON object.
 std::string_view
 loadField(json::object& cnfobj, std::string fld, const std::string& alt)
 {
@@ -1338,6 +1279,7 @@ loadField(json::object& cnfobj, std::string fld, const std::string& alt)
   return alt;
 }
 
+/// queries a boolean field from a JSON object.
 bool loadField(json::object& cnfobj, std::string fld, bool alt)
 {
   const auto pos = cnfobj.find(fld);
@@ -1348,6 +1290,7 @@ bool loadField(json::object& cnfobj, std::string fld, bool alt)
   return alt;
 }
 
+/// queries an int64_t field from a JSON object.
 std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
 {
   const auto pos = cnfobj.find(fld);
@@ -1367,7 +1310,7 @@ std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
   return alt;
 }
 
-
+/// replaces new line characters in a string with escaped newline
 std::string replace_nl(std::string s)
 {
   boost::replace_all(s, "\n", "\\n");
@@ -1375,7 +1318,7 @@ std::string replace_nl(std::string s)
   return s;
 }
 
-
+/// pretty prints settings to JSON format
 void writeSettings(std::ostream& os, const Settings& settings)
 {
   // print pretty json by hand, as boost does not pretty print by default.
@@ -1404,7 +1347,7 @@ void writeSettings(std::ostream& os, const Settings& settings)
      << "\n}" << std::endl;
 }
 
-
+/// loads settings from a JSON file \p configFileName
 Settings loadConfig(const std::string& configFileName)
 {
   Settings      settings;
@@ -1466,7 +1409,7 @@ Settings loadConfig(const std::string& configFileName)
   return settings;
 }
 
-
+/// creates JSON file with default values
 void createDefaultConfig(const CmdLineArgs& args)
 {
   if (std::filesystem::exists(args.configFileName))
@@ -1480,17 +1423,25 @@ void createDefaultConfig(const CmdLineArgs& args)
 
   std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, modelDefaults(args.configModel));
+  writeSettings(ofs, modelDefaults(args.configModel, args));
 }
 
-
+/// Functor processing command line arguments
 struct CmdLineProc
 {
+  explicit
+  CmdLineProc(std::filesystem::path absPath)
+  : opts()
+  {
+    opts.programPath = std::move(absPath);
+  }
+
   CmdLineArgs::Model
   parseModel(std::string_view m)
   {
     if (m == "gpt4")   return CmdLineArgs::gpt4;
     if (m == "claude") return CmdLineArgs::claude;
+    if (m == "ollama") return CmdLineArgs::ollama;
 
     return CmdLineArgs::error;
   }
@@ -1615,7 +1566,9 @@ std::string CmdLineProc::pcsvsummary    = "--csvsummary=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
-  return std::for_each(args.begin(), args.end(), CmdLineProc{});
+  return std::for_each( std::next(args.begin()), args.end(),
+                        CmdLineProc{absolutePath(args.at(0))}
+                      );
 }
 
 using RevisionBase = std::tuple<std::string, TestResult>;
@@ -1629,6 +1582,7 @@ struct Revision : RevisionBase
   const TestResult&  result()   const { return std::get<1>(*this); }
 };
 
+/// prints Revision objects in "result" format
 struct ResultPrinter
 {
   const Revision& obj;
@@ -1650,6 +1604,7 @@ std::ostream& operator<<(std::ostream& os, const ResultPrinter& el)
   return os << ": " << TestResultPrinter{ el.obj.result() };
 }
 
+/// prints Revision objects in CSV format
 struct CsvResultPrinter
 {
   const Revision& obj;
@@ -1660,7 +1615,8 @@ std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
   return os << el.obj.fileName() << "," << TestResultPrinter{ el.obj.result(), "," };
 }
 
-
+/// generates a quality description
+/// (not used for prompting currently)
 std::string
 qualityText(const std::vector<Revision>& variants)
 {
@@ -1697,6 +1653,7 @@ qualityText(const std::vector<Revision>& variants)
 }
 
 
+/// generates an assessment for the initial code
 Revision
 initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
 {
@@ -1710,6 +1667,7 @@ initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
   return { fileName, invokeTestScript(settings, fileName, cmdlnargs.harness) };
 }
 
+/// prints revision information with specified printer
 template <class Printer>
 void reportResults(std::ostream& os, const std::vector<Revision>& variants)
 {
@@ -1717,10 +1675,10 @@ void reportResults(std::ostream& os, const std::vector<Revision>& variants)
     os << Printer{r} << std::endl;
 }
 
-
+/// main driver file
 int main(int argc, char** argv)
 {
-  CmdLineArgs cmdlnargs = parseArguments(getCmdlineArgs(argv+1, argv+argc));
+  CmdLineArgs cmdlnargs = parseArguments(getCmdlineArgs(argv, argv+argc));
 
   if (cmdlnargs.help)
   {
