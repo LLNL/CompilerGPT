@@ -37,20 +37,20 @@ Build CompilerGPT:
 
 Call CompilerGPT:
 
-    compgpt --config=configfile.json c++-source-file
+    compgpt.bin --config=configfile.json c++-source-file
 
 The configurtation is read from the json file. The config file specifies how to interact with a target compiler and the LLM system.
 
 
 A default configuration for GPT4 can be created by
 
-    compgpt --config=configfile.json --createconfig=gpt4
+    compgpt.bin --config=configfile.json --create-config=gpt4
 
 On BSD systems (such as OS X), the script scripts/gpt4/execquery-bsd.sh can be used instead of scripts/gpt4/execquery.sh to avoid issues with the GNU readlink utility.
 
 Claude is an alternative to the GPT model. It can be used in a similar way than gpt, but it requires a different configuration. A default configuration file can be created by
 
-    compgpt --config=configfile.json --createconfig=claude
+    compgpt.bin --config=configfile.json --create-config=claude
 
 Note, the interaction with GPT uses OpenAI's Python library, while the interaction with
 claude is based on curl. This demonstrates the flexibility of the driver.
