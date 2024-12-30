@@ -405,7 +405,7 @@ void splitArgs(const std::string& s, std::vector<std::string>& args)
     args.emplace_back(std::move(arg));
 }
 
-/// separates a string \p input at an configurable whitespace \p splitch and returns
+/// separates a string \p input at an configurable whitespace \p ch and returns
 ///   them as vector<string>.
 std::vector<std::string>
 splitString(const std::string& input, char splitch = '\n')
@@ -426,6 +426,102 @@ splitString(const std::string& input, char splitch = '\n')
 
   return res;
 }
+
+using PlaceholderBase = std::tuple<std::size_t, std::string>;
+
+/// encapsulates any text placeholder that gets substituted with
+///   programmatic information (reports, source code).
+struct Placeholder : PlaceholderBase
+{
+  using base = PlaceholderBase;
+  using base::base;
+
+  std::size_t      offsetInString() const { return std::get<0>(*this); }
+  std::string_view token()          const { return std::get<1>(*this); }
+};
+
+
+
+using PlaceholderMapBase = std::unordered_map<std::string_view, std::string>;
+
+struct PlaceholderMap : PlaceholderMapBase
+{
+  using base = PlaceholderMapBase;
+  using base::base;
+
+  Placeholder next(std::string_view prompt);
+};
+
+Placeholder
+PlaceholderMap::next(std::string_view prompt)
+{
+  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
+  {
+    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
+    {
+      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
+
+      if (this->find(cand) != this->end())
+        return Placeholder{pos, cand};
+    }
+  }
+
+  return Placeholder{prompt.size(), ""};
+}
+
+
+
+/// replaces known placeholders with their text
+std::string
+expandText0(std::string_view prompt, PlaceholderMap m)
+{
+  std::stringstream txt;
+  Placeholder       var = m.next(prompt);
+
+  while (var.token().size() != 0)
+  {
+    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
+
+    txt << prompt.substr(0, var.offsetInString())
+        << m.at(var.token());
+
+    prompt.remove_prefix(prefixlen);
+    var = m.next(prompt);
+  }
+
+  txt << prompt;
+  return txt.str();
+}
+
+std::string
+expandText(std::string_view prompt, const Settings& settings, PlaceholderMap m)
+{
+  m["invokeai"]    = settings.invokeai;
+  m["optcompiler"] = settings.optcompiler;
+  m["optreport"]   = settings.optreport;
+  m["optcompile"]  = settings.optcompile;
+
+/*
+     << "\n  \"queryFile\":\""      << settings.queryFile << "\","
+     << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
+     << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
+     << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
+     << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
+     << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
+     << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
+     << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
+     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
+     << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
+     << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
+     << "\n  \"successPrompt\":\""  << replace_nl(settings.successPrompt) << "\","
+     << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\","
+     << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\","
+     << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
+     << "\n  \"iterations\":"       << settings.iterations
+*/
+  return expandText0(prompt, std::move(m));
+}
+
 
 using DiagnosticBase = std::tuple<std::string, SourcePoint, std::vector<std::string> >;
 
@@ -724,10 +820,15 @@ std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
   return os << as_string(el.obj.success(), true) << el.sep << el.obj.score();
 }
 
+
+
 /// invokes the test script
 TestResult
 invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
 {
+  static const std::string prmFileName = "filename";
+  static const std::string prmHarness  = "harness";
+
   if (settings.testScript.empty())
   {
     std::cerr << "No test-script configured. Not running tests."
@@ -736,18 +837,28 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
     return { true, 0.0, "" };
   }
 
-  std::vector<std::string> args{filename};
+  std::string testCall = expandText( settings.testScript,
+                                     settings,
+                                     { { prmFileName, filename },
+                                       { prmHarness,  harness }
+                                     }
+                                   );
 
-  if (!harness.empty())
-    args.push_back(harness);
+  std::vector<std::string> args;
 
-  std::cerr << "test: " << settings.testScript << range(args) << std::endl;
+  splitArgs(testCall, args);
+
+  std::string testHarness = args.front();
+
+  args.erase(args.begin());
+
+  std::cerr << "test: " << testHarness << " " << range(args) << std::endl;
 
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boost::process::child    tst( settings.testScript,
+  boost::process::child    tst( testHarness,
                                 boost::process::args(args),
                                 boost::process::std_in.close(),
                                 boost::process::std_out > outstr,
@@ -779,65 +890,6 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 
   std::cerr << "success(test): " << success << std::endl;
   return { success, testScore(success, outs), std::move(errs) };
-}
-
-using PlaceholderBase = std::tuple<std::size_t, std::string>;
-
-/// encapsulates any text placeholder that gets substituted with
-///   programmatic information (reports, source code).
-struct Placeholder : PlaceholderBase
-{
-  using base = PlaceholderBase;
-  using base::base;
-
-  std::size_t      offsetInString() const { return std::get<0>(*this); }
-  std::string_view token()          const { return std::get<1>(*this); }
-
-  static
-  Placeholder find(std::string_view prompt);
-};
-
-
-Placeholder
-Placeholder::find(std::string_view prompt)
-{
-  if (std::size_t len = prompt.find("<<"); len != std::string_view::npos)
-  {
-    std::string_view  cand = prompt;
-    cand.remove_prefix(len + 2);
-
-    if (cand.starts_with("code>>"))
-      return Placeholder{len, "code"};
-
-    if (cand.starts_with("report>>"))
-      return Placeholder{len, "report"};
-  }
-
-  return Placeholder{prompt.size(), ""};
-}
-
-using PlaceholderMap = std::unordered_map<std::string_view, std::string>;
-
-/// replaces known placeholders with their text
-std::string
-expandPrompt(std::string_view prompt, PlaceholderMap m)
-{
-  std::stringstream txt;
-  Placeholder       var = Placeholder::find(prompt);
-
-  while (var.token().size() != 0)
-  {
-    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
-
-    txt << prompt.substr(0, var.offsetInString())
-        << m.at(var.token());
-
-    prompt.remove_prefix(prefixlen);
-    var = Placeholder::find(prompt);
-  }
-
-  txt << prompt;
-  return txt.str();
 }
 
 
@@ -905,11 +957,12 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
     json::object q;
 
     q["role"]    = "user";
-    q["content"] = expandPrompt( settings.firstPrompt,
-                                 { {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)}
-                                 , {"report", output}
-                                 }
-                               );
+    q["content"] = expandText( settings.firstPrompt,
+                               settings,
+                               { {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)}
+                               , {"report", output}
+                               }
+                             );
 
     res.emplace_back(std::move(q));
   }
@@ -1797,10 +1850,11 @@ int main(int argc, char** argv)
           }
           else if (promptAI)
           {
-            std::string prompt = expandPrompt( settings.successPrompt,
-                                               { {"report", compres.output()}
-                                               }
-                                             );
+            std::string prompt = expandText( settings.successPrompt,
+                                             settings,
+                                             { {"report", compres.output()}
+                                             }
+                                           );
 
             // \todo add quality assessment to prompt
             query = appendPrompt(std::move(query), std::move(prompt));
@@ -1812,10 +1866,11 @@ int main(int argc, char** argv)
 
           if (promptAI)
           {
-            std::string prompt = expandPrompt( settings.compFailPrompt,
-                                               { {"report", variants.back().result().errors()}
-                                               }
-                                             );
+            std::string prompt = expandText( settings.compFailPrompt,
+                                             settings,
+                                             { {"report", variants.back().result().errors()}
+                                             }
+                                           );
 
             query = appendPrompt(std::move(query), std::move(prompt));
           }
@@ -1830,10 +1885,11 @@ int main(int argc, char** argv)
 
         if (promptAI)
         {
-          std::string prompt = expandPrompt( settings.testFailPrompt,
-                                             { {"report", compres.output()}
-                                             }
-                                           );
+          std::string prompt = expandText( settings.testFailPrompt,
+                                           settings,
+                                           { {"report", compres.output()}
+                                           }
+                                         );
 
           query = appendPrompt(std::move(query), std::move(prompt));
         }
