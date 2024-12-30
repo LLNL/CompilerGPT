@@ -18,8 +18,8 @@
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
-#include <boost/json/src.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/json/src.hpp>
 
 //~ #include <boost/algorithm/string/predicate.hpp>
 
@@ -50,7 +50,7 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n                      default: jsonfile=compgpt.json"
                     "\n    --create-config   creates config file and exits."
                     "\n    --create-config=p creates config file for a specified AI model, and exits."
-                    "\n                      p in {gpt4,claude}"
+                    "\n                      p in {gpt4,claude,ollama}"
                     "\n                      default: p=gpt4"
                     "\n    --harness-param=p sets an optional parameter for the test harness."
                     "\n                      default: none"
@@ -1693,6 +1693,8 @@ void reportResults(std::ostream& os, const std::vector<Revision>& variants)
 /// main driver file
 int main(int argc, char** argv)
 {
+  assert(argc > 0);
+
   CmdLineArgs cmdlnargs = parseArguments(getCmdlineArgs(argv, argv+argc));
 
   if (cmdlnargs.help)
@@ -1710,12 +1712,20 @@ int main(int argc, char** argv)
     return 0;
   }
 
-
   if (cmdlnargs.configModel != CmdLineArgs::none)
   {
     createDefaultConfig(cmdlnargs);
     return 0;
   }
+
+  if (cmdlnargs.all.size() == 0)
+  {
+    std::cout << (cmdlnargs.programPath / argv[0]).string() << std::endl
+              << "  no arguments where provided" << std::endl
+              << "  try --help for more information" << std::endl;
+    return 1;
+  }
+
 
   Settings          settings   = loadConfig(cmdlnargs.configFileName);
 
