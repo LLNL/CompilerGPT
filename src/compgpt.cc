@@ -138,8 +138,8 @@ struct Settings
 {
   std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
   std::string  optcompiler    = "/usr/bin/clang";
-  std::string  optreport      = "-Rpass-missed=.";
-  std::string  optcompile     = "-c";
+  std::string  optreport      = "-Rpass-missed=. -c";
+  std::string  optcompile     = "-O3 -march=native -DNDEBUG=1";
   std::string  queryFile      = "query.json";
   std::string  responseFile   = "response.txt";
   std::string  responseField  = "";
