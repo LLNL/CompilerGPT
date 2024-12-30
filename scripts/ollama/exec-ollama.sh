@@ -35,8 +35,8 @@ echo "  \"messages\": $query" >>q.json
 echo "}" >>q.json
 
 # curl invocation and response gathering
-
-curl -X POST http://localhost:11434/api/chat
+curl http://localhost:11434/api/chat \
      -H "Content-Type: application/json" \
      --data "@q.json" \
      -o response.json
+
