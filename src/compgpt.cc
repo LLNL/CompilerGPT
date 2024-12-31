@@ -84,6 +84,8 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n                 (an empty string runs compgpt without optimization report)"
                          "\n  optreport      arguments passed to 'optcompiler' to generate an optimization report"
                          "\n  optcompile     arguments passed to 'optcompiler' to validate compilation"
+                         "\n  leanOptReport  a boolean value indicating if adjacent repetitive lines"
+                         "\n                 should be removed form the optimization report."
                          "\n"
                          "\nInteraction with AI"
                          "\n  invokeai       a string pointing to an executable (script) to call the external AI"
@@ -156,6 +158,7 @@ struct Settings
   std::string  testFailPrompt = "This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.";
 
   bool         stopOnSuccess  = false;
+  bool         leanOptReport  = true;
   std::int64_t iterations     = 1;
 };
 
@@ -502,6 +505,7 @@ expandText(std::string_view prompt, const Settings& settings, PlaceholderMap m)
   m["optcompile"]  = settings.optcompile;
 
 /*
+     << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
      << "\n  \"queryFile\":\""      << settings.queryFile << "\","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
@@ -541,6 +545,21 @@ struct Diagnostic : DiagnosticBase
   SourcePoint&              location() { return std::get<1>(*this); }
   std::vector<std::string>& message()  { return std::get<2>(*this); }
 };
+
+bool equalDiagnostic(const Diagnostic& lhs, const Diagnostic& rhs)
+{
+  if (  lhs.file() != rhs.file()
+     || lhs.location() != rhs.location()
+     )
+    return false;
+
+  const std::vector<std::string>& lhsmsg = lhs.message();
+  const std::vector<std::string>& rhsmsg = rhs.message();
+
+  return std::equal( lhsmsg.begin(), lhsmsg.end(),
+                     rhsmsg.begin(), rhsmsg.end()
+                   );
+}
 
 /// uses a regex to find a file location within a string \p s.
 std::tuple<std::string, SourcePoint>
@@ -602,10 +621,23 @@ struct DiagnosticFilter2
   std::vector<Diagnostic> diagnosed;
 };
 
+void
+trimOptReport(Diagnostic& diag)
+{
+  auto lim = diag.message().end();
+  auto pos = std::unique(diag.message().begin(), lim);
+
+  diag.message().erase(pos, lim);
+}
 
 /// filters diagnostic output for source location
 CompilationResult
-filterMessageOutput(const std::string& out, std::string_view filename, SourceRange rng, bool success)
+filterMessageOutput( const Settings& settings,
+                     const std::string& out,
+                     std::string_view filename,
+                     SourceRange rng,
+                     bool success
+                   )
 {
   if (!success) return { out, success };
 
@@ -626,8 +658,17 @@ filterMessageOutput(const std::string& out, std::string_view filename, SourceRan
                     || (el.location() >= rng.lim())
                     );
            };
+
+  std::vector<Diagnostic>  withinRange;
   auto beg = diagnosed.begin();
   auto pos = std::remove_if( beg, diagnosed.end(), outsideSourceRange );
+
+  if (settings.leanOptReport)
+  {
+    pos = std::unique(beg, pos, equalDiagnostic );
+
+    std::for_each(beg, pos, trimOptReport);
+  }
 
   return { std::accumulate( beg, pos,
                             std::string{},
@@ -685,7 +726,7 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
   const bool success = exitCode.get() == 0;
   std::cerr << "success(compile): " << success << std::endl;
 
-  return filterMessageOutput(errstr.get(), args.back(), kernelrng, success);
+  return filterMessageOutput(settings, errstr.get(), args.back(), kernelrng, success);
 }
 
 /// calls the compiler and returns the compilation result.
@@ -1396,6 +1437,7 @@ void writeSettings(std::ostream& os, const Settings& settings)
      << "\n  \"optcompiler\":\""    << settings.optcompiler << "\","
      << "\n  \"optreport\":\""      << settings.optreport << "\","
      << "\n  \"optcompile\":\""     << settings.optcompile << "\","
+     << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
      << "\n  \"queryFile\":\""      << settings.queryFile << "\","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
@@ -1450,6 +1492,7 @@ Settings loadConfig(const std::string& configFileName)
     config.systemTextFile = loadField(cnfobj, "systemTextFile",  config.systemTextFile);
     config.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.roleOfAI);
     config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
+    config.stopOnSuccess  = loadField(cnfobj, "leanOptReport",   config.leanOptReport);
     config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
 
     config.firstPrompt    = loadField(cnfobj, "firstPrompt",     config.firstPrompt);
