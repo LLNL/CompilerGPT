@@ -164,10 +164,10 @@ struct Settings
 
   bool languageTranslation() const
   {
-    return (  outputLang.size() 
+    return (  outputLang.size()
            && (inputLang != outputLang)
            );
-  }	  
+  }
 };
 
 
@@ -1273,16 +1273,23 @@ storeGeneratedFile( const Settings& settings,
                     std::string_view response
                   )
 {
-  std::string_view    fileName  = cmdline.all.back();
-  const int           iteration = 1;
-  const std::string   newFile   = generateNewFileName(fileName, settings.newFileExt, iteration);
-  const std::string   marker    = CC_MARKER_BEGIN + settings.outputLang;
-  const std::size_t   mark      = response.find(marker);
+  std::string_view  fileName  = cmdline.all.back();
+  const int         iteration = 1;
+  const std::string newFile   = generateNewFileName(fileName, settings.newFileExt, iteration);
+  std::string       marker    = CC_MARKER_BEGIN + settings.outputLang;
+  std::size_t       mark      = response.find(marker);
 
   if (mark == std::string::npos)
   {
-    trace(std::cerr, response, "\n  missing code marker ", marker, '\n');
-    throw MissingCodeError{"Cannot find code markers in AI output."};
+    // fallback for models that do not get markdown correctly
+    marker = CC_MARKER_BEGIN;
+    mark   = response.find(marker);
+  }
+
+  if (mark == std::string::npos)
+  {
+    trace(std::cerr, response, "\n  missing markdown code block ", marker, settings.outputLang, '\n');
+    throw MissingCodeError{"Cannot find markdown code block in AI output."};
   }
 
   const std::size_t   beg       = mark + marker.size();
@@ -1290,8 +1297,8 @@ storeGeneratedFile( const Settings& settings,
 
   if (lim == std::string::npos)
   {
-    trace(std::cerr, response, "\n  missing code delimiter ", CC_MARKER_LIMIT, '\n');
-    throw MissingCodeError{"Cannot find code delimiter in AI output."};
+    trace(std::cerr, response, "\n  missing markdown code delimiter ", CC_MARKER_LIMIT, '\n');
+    throw MissingCodeError{"Cannot find markdown code delimiter in AI output."};
   }
 
   if (response.find(marker, lim + CC_MARKER_LIMIT.size()) != std::string::npos)
