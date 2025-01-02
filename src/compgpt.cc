@@ -182,7 +182,6 @@ struct MultipleCodeSectionsError : std::runtime_error
 };
 
 
-
 void trace(std::ostream& os)
 {
   os << std::flush;
@@ -622,12 +621,8 @@ struct DiagnosticFilter2
     if (isIncludeTrace)
       return;
 
-    std::string file;
-    SourcePoint loc;
-
-    std::tie(file, loc) = fileLocation(s);
-
-    const bool  containsSourceLoc = !file.empty();
+    const auto [file, loc]       = fileLocation(s);
+    const bool containsSourceLoc = !file.empty();
 
     if (containsSourceLoc)
     {
@@ -1526,7 +1521,7 @@ Settings loadConfig(const std::string& configFileName)
     config.systemTextFile = loadField(cnfobj, "systemTextFile",  config.systemTextFile);
     config.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.roleOfAI);
     config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
-    config.stopOnSuccess  = loadField(cnfobj, "leanOptReport",   config.leanOptReport);
+    config.leanOptReport  = loadField(cnfobj, "leanOptReport",   config.leanOptReport);
     config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
 
     config.firstPrompt    = loadField(cnfobj, "firstPrompt",     config.firstPrompt);
@@ -1818,6 +1813,161 @@ void reportResults(std::ostream& os, const std::vector<Revision>& variants)
     os << Printer{r} << std::endl;
 }
 
+
+std::tuple<json::value, std::vector<Revision>, bool>
+promptResponseEval( const CmdLineArgs& cmdlnargs,
+                    const Settings& settings,
+                    json::value query,
+                    std::vector<Revision> variants,
+                    bool lastIteration
+                  )
+{
+  storeQuery(settings, query);
+  invokeAI(settings);
+
+  std::string response = loadAIResponse(settings);
+
+  query = appendResponse(settings, std::move(query), response);
+
+  try
+  {
+    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, response);
+    CompilationResult compres         = compileResult(settings, cmdlnargs, newFile, kernelrange);
+
+    if (compres.success())
+    {
+      variants.emplace_back( newFile,
+                             invokeTestScript(settings, newFile, cmdlnargs.harness)
+                           );
+
+      if (variants.back().result().success())
+      {
+        trace(std::cerr, "Compiled and tested, results ", qualityText(variants), ".\n");
+
+        if (settings.stopOnSuccess)
+          return { std::move(query), std::move(variants), true };
+
+        if (!lastIteration)
+        {
+          std::string prompt = expandText( settings.successPrompt,
+                                           settings,
+                                           { {"report", compres.output()}
+                                           }
+                                         );
+
+          // \todo add quality assessment to prompt
+          query = appendPrompt(std::move(query), std::move(prompt));
+        }
+      }
+      else
+      {
+        trace(std::cerr, "Code compiled but test failed...\n");
+
+        if (!lastIteration)
+        {
+          std::string prompt = expandText( settings.compFailPrompt,
+                                           settings,
+                                           { {"report", variants.back().result().errors()}
+                                           }
+                                         );
+
+          query = appendPrompt(std::move(query), std::move(prompt));
+        }
+      }
+    }
+    else
+    {
+      // ask to correct the code
+      trace(std::cerr, "Compilation failed...\n");
+
+      variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
+
+      if (!lastIteration)
+      {
+        std::string prompt = expandText( settings.testFailPrompt,
+                                         settings,
+                                         { {"report", compres.output()}
+                                         }
+                                       );
+
+        query = appendPrompt(std::move(query), std::move(prompt));
+      }
+    }
+  }
+  catch (const MissingCodeError&)
+  {
+    std::string response = ( "Unable to find code section marked by "
+                           + CC_MARKER_BEGIN + settings.outputLang
+                           + ". Fix the output formatting."
+                           );
+
+    variants.emplace_back("--no-code--", TestResult{false, nanValue<long double>(), "<no code marker>"});
+    query = appendPrompt(std::move(query), std::move(response));
+  }
+  catch (const MultipleCodeSectionsError&)
+  {
+    std::string response = "Found multiple code sections in the output. Return the response within a single section.";
+
+    variants.emplace_back("--many-codes--", TestResult{false, nanValue<long double>(), "<too may code segments>"});
+    query = appendPrompt(std::move(query), std::move(response));
+  }
+
+  return { std::move(query), std::move(variants), false };
+}
+
+/// core loop managing AI/tool interactions
+/// \return the conversation and the code revisions
+std::tuple<json::value, std::vector<Revision> >
+driver(const CmdLineArgs& cmdlnargs, const Settings& settings)
+{
+  CompilationResult     compres    = compileResult(settings, cmdlnargs);
+  int                   iterations = settings.iterations;
+
+  trace(std::cerr, "compiled ", compres.success(), '\n');
+
+  if (!compres.success())
+  {
+    std::cerr << "Input file does not compile:\n"
+              << compres.output()
+              << std::endl;
+
+    // do we really need to exit; maybe compiler GPT can fix the output..
+    exit(1);
+  }
+
+  std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs) };
+  json::value           query    = initialPrompt( settings, cmdlnargs, std::move(compres.output()) );
+
+  try
+  {
+    bool stopEarly = false;
+
+    while (iterations > 0 && !stopEarly)
+    {
+      --iterations;
+
+      std::tie(query, variants, stopEarly) = promptResponseEval( cmdlnargs,
+                                                                 settings,
+                                                                 std::move(query),
+                                                                 std::move(variants),
+                                                                 iterations == 0
+                                                               );
+    }
+  }
+  catch (const std::exception& ex)
+  {
+    std::cerr << "ERROR:\n" << ex.what() << "\nterminating"
+              << std::endl;
+  }
+  catch (...)
+  {
+    std::cerr << "UNKOWN ERROR:" << "\nterminating"
+              << std::endl;
+  }
+
+  return { std::move(query), std::move(variants) };
+}
+
 /// main driver file
 int main(int argc, char** argv)
 {
@@ -1864,152 +2014,23 @@ int main(int argc, char** argv)
   std::cout << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
             << std::endl;
 
-  CompilationResult compres    = compileResult(settings, cmdlnargs);
-  int               iterations = settings.iterations;
-
-  trace(std::cerr, "compiled ", compres.success(), '\n');
-
-  if (!compres.success())
-  {
-    std::cerr << "Input file does not compile:\n"
-              << compres.output()
-              << std::endl;
-
-    // do we really need to exit; maybe compiler GPT can fix the output..
-    exit(1);
-  }
-
-  std::vector<Revision> variants{ initialAssessment(settings, cmdlnargs) };
-
-  // initial prompt
-  json::value           query = initialPrompt( settings, cmdlnargs, std::move(compres.output()) );
-
-  try
-  {
-    while (iterations > 0)
-    {
-      --iterations;
-
-      const bool  promptAI = iterations != 0;
-
-      storeQuery(settings, query);
-      invokeAI(settings);
-
-      std::string response = loadAIResponse(settings);
-      std::string newFile;
-      SourceRange kernelrange;
-
-      query   = appendResponse(settings, std::move(query), response);
-
-      try
-      {
-        std::tie(newFile, kernelrange) = storeGeneratedFile(settings, cmdlnargs, response);
-        compres = compileResult(settings, cmdlnargs, newFile, kernelrange);
-
-        if (compres.success())
-        {
-          variants.emplace_back( newFile,
-                                 invokeTestScript(settings, newFile, cmdlnargs.harness)
-                               );
-
-          if (variants.back().result().success())
-          {
-            trace(std::cerr, "Compiled and tested, results ", qualityText(variants), ".\n");
-
-            if (settings.stopOnSuccess)
-            {
-              iterations = 0;
-            }
-            else if (promptAI)
-            {
-              std::string prompt = expandText( settings.successPrompt,
-                                               settings,
-                                               { {"report", compres.output()}
-                                               }
-                                             );
-
-              // \todo add quality assessment to prompt
-              query = appendPrompt(std::move(query), std::move(prompt));
-            }
-          }
-          else
-          {
-            trace(std::cerr, "Compiled but test failed... \n");
-
-            if (promptAI)
-            {
-              std::string prompt = expandText( settings.compFailPrompt,
-                                               settings,
-                                               { {"report", variants.back().result().errors()}
-                                               }
-                                             );
-
-              query = appendPrompt(std::move(query), std::move(prompt));
-            }
-          }
-        }
-        else
-        {
-          // ask to correct the code
-          trace(std::cerr, "Compilation failed...\n");
-
-          variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
-
-          if (promptAI)
-          {
-            std::string prompt = expandText( settings.testFailPrompt,
-                                             settings,
-                                             { {"report", compres.output()}
-                                             }
-                                           );
-
-            query = appendPrompt(std::move(query), std::move(prompt));
-          }
-        }
-      }
-      catch (const MissingCodeError&)
-      {
-        std::string response = ( "Unable to find code section marked by "
-                               + CC_MARKER_BEGIN + settings.outputLang
-                               + ". Fix the output formatting."
-                               );
-
-        query = appendPrompt(std::move(query), std::move(response));
-      }
-      catch (const MultipleCodeSectionsError&)
-      {
-        std::string response = "Found multiple code sections in the output. Return the response within a single section.";
-
-        query = appendPrompt(std::move(query), std::move(response));
-      }
-    }
-  }
-  catch (const std::exception& ex)
-  {
-    std::cerr << "ERROR:\n" << ex.what() << "\nterminating"
-              << std::endl;
-  }
-  catch (...)
-  {
-    std::cerr << "UNKOWN ERROR:" << "\nterminating"
-              << std::endl;
-  }
+  const auto [conversationHistory, revisions] = driver(cmdlnargs, settings);
 
   //
   // prepare final report
 
   // store query and results for review
-  storeQuery(settings, query);
+  storeQuery(settings, conversationHistory);
 
   // \todo go over results and rank them based on success and results
-  reportResults<ResultPrinter>(std::cout, variants);
+  reportResults<ResultPrinter>(std::cout, revisions);
 
   if (cmdlnargs.csvsummary.size())
   {
     std::ofstream of{cmdlnargs.csvsummary, std::ios_base::app};
 
     of << "---" << std::endl;
-    reportResults<CsvResultPrinter>(of, variants);
+    reportResults<CsvResultPrinter>(of, revisions);
   }
 
   return 0;
