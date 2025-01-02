@@ -169,6 +169,34 @@ std::filesystem::path absolutePath(std::string_view filename)
   return std::filesystem::absolute(std::filesystem::path{filename}).remove_filename();
 }
 
+struct MissingCodeError : std::runtime_error
+{
+  using base = std::runtime_error;
+  using base::base;
+};
+
+struct MultipleCodeSectionsError : std::runtime_error
+{
+  using base = std::runtime_error;
+  using base::base;
+};
+
+
+
+void trace(std::ostream& os)
+{
+  os << std::flush;
+}
+
+template <class Arg, class... Rest>
+void trace(std::ostream& os, Arg&& arg, Rest&&... rest)
+{
+  os << std::forward<Arg>(arg);
+  trace(os, std::forward<Rest>(rest)...);
+}
+
+
+
 
 /// a source code location
 using SourcePointBase = std::tuple<std::size_t, std::size_t>;
@@ -706,7 +734,7 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
   splitArgs(settings.optcompile, args);
   args.push_back(src);
 
-  std::cerr << "compile: " << settings.optcompiler << range(args) << std::endl;
+  trace(std::cerr, "compile: ", settings.optcompiler, range(args), '\n');
 
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
@@ -724,15 +752,21 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
   ios.run();
 
   const bool success = exitCode.get() == 0;
-  std::cerr << "success(compile): " << success << std::endl;
+  trace(std::cerr, "success(compile): ", success, '\n');
 
   return filterMessageOutput(settings, errstr.get(), args.back(), kernelrng, success);
 }
 
 /// calls the compiler and returns the compilation result.
 CompilationResult
-compileResult(const Settings& settings, const CmdLineArgs& cmdline, std::string newFile, SourceRange kernelrng)
+compileResult( const Settings& settings,
+               const CmdLineArgs& cmdline,
+               std::string newFile,
+               SourceRange kernelrng
+             )
 {
+  trace(std::cerr, "compile: ", newFile, "@", kernelrng, '\n');
+
   std::vector<std::string> args = cmdline.all;
 
   args.pop_back();
@@ -740,7 +774,7 @@ compileResult(const Settings& settings, const CmdLineArgs& cmdline, std::string 
 
   CompilationResult res = invokeCompiler(settings, kernelrng, args);
 
-  std::cerr << res.output() << std::endl;
+  trace(std::cerr, res.output(), '\n');
   return res;
 }
 
@@ -757,7 +791,7 @@ void invokeAI(const Settings& settings)
   //~ std::cerr << "!CallAI: " << settings.invokeai << std::endl;
   //~ return;
 
-  std::cerr << "CallAI: " << settings.invokeai << std::endl;
+  trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
 
   std::vector<std::string> noargs;
   boost::asio::io_service  ios;
@@ -791,7 +825,7 @@ void invokeAI(const Settings& settings)
 
   const int  ec      = exitCode.get();
 
-  std::cerr << "CallAI - exitcode: " << ec << std::endl;
+  trace(std::cerr, "CallAI - exitcode: ", ec, '\n');
 
   if (ec != 0) throw std::runtime_error{"AI invocation error."};
 }
@@ -893,7 +927,7 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 
   args.erase(args.begin());
 
-  std::cerr << "test: " << testHarness << " " << range(args) << std::endl;
+  trace(std::cerr, "test: ", testHarness, " ", range(args), '\n');
 
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
@@ -929,7 +963,7 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
   std::cout << outs << std::endl;
   std::cerr << errs << std::endl;
 
-  std::cerr << "success(test): " << success << std::endl;
+  trace(std::cerr, "success(test): ", success, '\n');
   return { success, testScore(success, outs), std::move(errs) };
 }
 
@@ -1082,17 +1116,18 @@ readJsonFile(std::istream& is)
 
     if (ec)
     {
-      std::cerr << ec << std::endl;
+      std::cerr << "ec = " << ec << std::endl;
       throw std::runtime_error("unable to parse JSON file: " + line);
     }
   }
 
-
   p.finish(ec);
 
-  std::cerr << ec << std::endl;
-
-  if (ec) throw std::runtime_error("unable to finish parsing JSON file");
+  if (ec)
+  {
+    std::cerr << "ec = " << ec << std::endl;
+    throw std::runtime_error("unable to finish parsing JSON file");
+  }
 
   return p.release();
 }
@@ -1243,22 +1278,23 @@ storeGeneratedFile( const Settings& settings,
 
   if (mark == std::string::npos)
   {
-    std::cerr << response
-              << "\n  missing code marker " << marker
-              << std::endl;
-    throw std::runtime_error{"Cannot find code markers in AI output."};
+    trace(std::cerr, response, "\n  missing code marker ", marker, '\n');
+    throw MissingCodeError{"Cannot find code markers in AI output."};
   }
 
   const std::size_t   beg       = mark + marker.size();
   const std::size_t   lim       = response.find(CC_MARKER_LIMIT, beg);
 
-  if (beg == std::string::npos)
+  if (lim == std::string::npos)
   {
-    std::cerr << response
-              << "\n  missing code delimiter " << CC_MARKER_LIMIT
-              << std::endl;
+    trace(std::cerr, response, "\n  missing code delimiter ", CC_MARKER_LIMIT, '\n');
+    throw MissingCodeError{"Cannot find code delimiter in AI output."};
+  }
 
-    throw std::runtime_error{"Cannot find code delimiter in AI output."};
+  if (response.find(marker, lim) != std::string::npos)
+  {
+    trace(std::cerr, response, "\n  found multiple code sections\n");
+    throw MultipleCodeSectionsError{"Found multiple code sections."};
   }
 
   std::ofstream outf{newFile};
@@ -1300,9 +1336,7 @@ readTxtFile(std::istream& is)
 /// extracts a json string with a known path from a json value.
 std::string jsonField(const json::value& val, std::string_view fld)
 {
-  std::cerr << '{' << val << '}'
-            << "\n'" << fld
-            << std::endl;
+  //~ trace(std::cerr, '{', val, '}', "\n'", fld, '\n');
 
   if (fld.empty())
   {
@@ -1325,7 +1359,7 @@ std::string jsonField(const json::value& val, std::string_view fld)
     int                 num = 0;
     auto                [ptr, ec] = std::from_chars(idx.data(), idx.data() + idx.size(), num);
 
-    std::cerr << "i'" << idx << " " << lim << std::endl;
+    //~ trace(std::cerr, "i'", idx, " ", lim, '\n');
 
     if (ec != std::errc{})
       throw std::runtime_error{"Not a valid json array index (int expected)"};
@@ -1515,8 +1549,6 @@ Settings loadConfig(const std::string& configFileName)
               << std::endl;
   }
 
-  std::cerr << "---" << std::endl;
-  writeSettings(std::cerr, settings);
   return settings;
 }
 
@@ -1825,17 +1857,17 @@ int main(int argc, char** argv)
 
   Settings          settings   = loadConfig(cmdlnargs.configFileName);
 
-  std::cerr << "Settings: ";
-  writeSettings(std::cerr, settings);
-  std::cerr << std::endl;
+  std::cout << "Settings: ";
+  writeSettings(std::cout, settings);
+  std::cout << std::endl;
 
-  std::cerr << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
+  std::cout << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
             << std::endl;
 
   CompilationResult compres    = compileResult(settings, cmdlnargs);
   int               iterations = settings.iterations;
 
-  std::cerr << "compiled " << compres.success() << std::endl;
+  trace(std::cerr, "compiled ", compres.success(), '\n');
 
   if (!compres.success())
   {
@@ -1867,51 +1899,67 @@ int main(int argc, char** argv)
       std::string newFile;
       SourceRange kernelrange;
 
-      std::tie(newFile, kernelrange) = storeGeneratedFile(settings, cmdlnargs, response);
-
-      std::cerr << "Iteration: " << newFile << "@" << kernelrange
-                << std::endl;
-
       query   = appendResponse(settings, std::move(query), response);
-      compres = compileResult(settings, cmdlnargs, newFile, kernelrange);
 
-      if (compres.success())
+      try
       {
-        variants.emplace_back( newFile,
-                               invokeTestScript(settings, newFile, cmdlnargs.harness)
-                             );
+        std::tie(newFile, kernelrange) = storeGeneratedFile(settings, cmdlnargs, response);
+        compres = compileResult(settings, cmdlnargs, newFile, kernelrange);
 
-        if (variants.back().result().success())
+        if (compres.success())
         {
-          std::cerr << "Compiled and tested, results "
-                    << qualityText(variants) << "."
-                    << std::endl;
+          variants.emplace_back( newFile,
+                                 invokeTestScript(settings, newFile, cmdlnargs.harness)
+                               );
 
-          if (settings.stopOnSuccess)
+          if (variants.back().result().success())
           {
-            iterations = 0;
+            trace(std::cerr, "Compiled and tested, results ", qualityText(variants), ".\n");
+
+            if (settings.stopOnSuccess)
+            {
+              iterations = 0;
+            }
+            else if (promptAI)
+            {
+              std::string prompt = expandText( settings.successPrompt,
+                                               settings,
+                                               { {"report", compres.output()}
+                                               }
+                                             );
+
+              // \todo add quality assessment to prompt
+              query = appendPrompt(std::move(query), std::move(prompt));
+            }
           }
-          else if (promptAI)
+          else
           {
-            std::string prompt = expandText( settings.successPrompt,
-                                             settings,
-                                             { {"report", compres.output()}
-                                             }
-                                           );
+            trace(std::cerr, "Compiled but test failed... \n");
 
-            // \todo add quality assessment to prompt
-            query = appendPrompt(std::move(query), std::move(prompt));
+            if (promptAI)
+            {
+              std::string prompt = expandText( settings.compFailPrompt,
+                                               settings,
+                                               { {"report", variants.back().result().errors()}
+                                               }
+                                             );
+
+              query = appendPrompt(std::move(query), std::move(prompt));
+            }
           }
         }
         else
         {
-          std::cerr << "Compiled but test failed... " << std::endl;
+          // ask to correct the code
+          trace(std::cerr, "Compilation failed...\n");
+
+          variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
 
           if (promptAI)
           {
-            std::string prompt = expandText( settings.compFailPrompt,
+            std::string prompt = expandText( settings.testFailPrompt,
                                              settings,
-                                             { {"report", variants.back().result().errors()}
+                                             { {"report", compres.output()}
                                              }
                                            );
 
@@ -1919,23 +1967,20 @@ int main(int argc, char** argv)
           }
         }
       }
-      else
+      catch (const MissingCodeError&)
       {
-        // ask to correct the code
-        std::cerr << "Compilation failed..." << std::endl;
+        std::string response = ( "Unable to find code section marked by "
+                               + CC_MARKER_BEGIN + settings.outputLang
+                               + ". Fix the output formatting."
+                               );
 
-        variants.emplace_back( newFile, TestResult{false, nanValue<long double>(), compres.output()} );
+        query = appendPrompt(std::move(query), std::move(response));
+      }
+      catch (const MultipleCodeSectionsError&)
+      {
+        std::string response = "Found multiple code sections in the output. Return the response within a single section.";
 
-        if (promptAI)
-        {
-          std::string prompt = expandText( settings.testFailPrompt,
-                                           settings,
-                                           { {"report", compres.output()}
-                                           }
-                                         );
-
-          query = appendPrompt(std::move(query), std::move(prompt));
-        }
+        query = appendPrompt(std::move(query), std::move(response));
       }
     }
   }
