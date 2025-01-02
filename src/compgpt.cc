@@ -160,6 +160,14 @@ struct Settings
   bool         stopOnSuccess  = false;
   bool         leanOptReport  = true;
   std::int64_t iterations     = 1;
+
+
+  bool languageTranslation() const
+  {
+    return (  outputLang.size() 
+           && (inputLang != outputLang)
+           );
+  }	  
 };
 
 
@@ -1286,7 +1294,7 @@ storeGeneratedFile( const Settings& settings,
     throw MissingCodeError{"Cannot find code delimiter in AI output."};
   }
 
-  if (response.find(marker, lim) != std::string::npos)
+  if (response.find(marker, lim + CC_MARKER_LIMIT.size()) != std::string::npos)
   {
     trace(std::cerr, response, "\n  found multiple code sections\n");
     throw MultipleCodeSectionsError{"Found multiple code sections."};
@@ -1797,9 +1805,9 @@ initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
 {
   std::string fileName = cmdlnargs.all.back();
 
-  if (settings.inputLang != settings.outputLang)
+  if (settings.languageTranslation())
     return { fileName,
-             TestResult{false, nanValue<long double>(), "test harness not run (inputLang != outputLang)"}
+             TestResult{false, nanValue<long double>(), "test harness not run (language translation)"}
            };
 
   return { fileName, invokeTestScript(settings, fileName, cmdlnargs.harness) };
@@ -1865,7 +1873,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
         if (!lastIteration)
         {
-          std::string prompt = expandText( settings.compFailPrompt,
+          std::string prompt = expandText( settings.testFailPrompt,
                                            settings,
                                            { {"report", variants.back().result().errors()}
                                            }
@@ -1884,7 +1892,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
       if (!lastIteration)
       {
-        std::string prompt = expandText( settings.testFailPrompt,
+        std::string prompt = expandText( settings.compFailPrompt,
                                          settings,
                                          { {"report", compres.output()}
                                          }
@@ -1896,10 +1904,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
   }
   catch (const MissingCodeError&)
   {
-    std::string response = ( "Unable to find code section marked by "
-                           + CC_MARKER_BEGIN + settings.outputLang
-                           + ". Fix the output formatting."
-                           );
+    std::string response = "Unable to find the markdown code block. Respond by putting the optimized code in a markdown code block.";
 
     variants.emplace_back("--no-code--", TestResult{false, nanValue<long double>(), "<no code marker>"});
     query = appendPrompt(std::move(query), std::move(response));
