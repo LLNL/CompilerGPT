@@ -27,8 +27,10 @@ GPT Environment: Default queries will use OpenAI's API (in scripts/gpt4/). Three
   typical error message on Linux:  \[SSL: CERTIFICATE\_VERIFY\_FAILED\] certificate verify failed: self signed certificate in certificate chain
 
 Claude Environment:
-* ANTHROPIC_API_KEY the key for queries
+* ANTHROPIC_API_KEY the key to support Claude requests
 
+Openrouter.ai Environment:
+* OPENROUTER_API_KEY the key to support openrouter.ai requests
 
 Build CompilerGPT:
 
