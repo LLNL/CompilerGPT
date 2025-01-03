@@ -31,6 +31,8 @@ const std::string CC_MARKER_LIMIT = "```";
 namespace
 {
 
+const char* versionString = "1.25.1.3";
+
 const char* synopsis = "compgpt: compiler driven code optimizations through LLMs"
                        "\n  description: feeds clang optimization report of a kernel to"
                        "\n               an LLM and asks it to optimize the source code"
@@ -42,33 +44,36 @@ const char* synopsis = "compgpt: compiler driven code optimizations through LLMs
 
 const char* usage = "usage: compgpt switches source-file"
                     "\n  switches:"
+                    "\n    --version             displays version information and exits."
                     "\n    -h"
                     "\n    -help"
-                    "\n    --help            displays this help message and exits."
-                    "\n    --help-config     prints config file documentation."
-                    "\n    --config=jsonfile config file in json format."
-                    "\n                      default: jsonfile=compgpt.json"
-                    "\n    --create-config   creates config file and exits."
-                    "\n    --create-config=p creates config file for a specified AI model, and exits."
-                    "\n                      p in {gpt4,claude,ollama}"
-                    "\n                      default: p=gpt4"
-                    "\n    --harness-param=p sets an optional parameter for the test harness."
-                    "\n                      default: none"
-                    "\n                      If set, the parameter is passed as second"
-                    "\n                      argument to the test script configured in"
-                    "\n                      the config file."
-                    "\n                      The tester is invoked with two arguments,"
-                    "\n                      the generated file and param:"
-                    "\n                        testScript genfile.cc p"
-                    "\n    --kernel=range    chooses a specific code segment for optimization."
-                    "\n                      range is specified in terms of line and optional column"
-                    "\n                      number."
-                    "\n                      The following are examples of valid options:"
-                    "\n                        0-10    Lines 0-10 (excluding Line 10)."
-                    "\n                        7:4-10  Lines 7 (starting at column 4) to Line 10."
-                    "\n                        7:2-10:8 Lines 7 (starting at column 2) to Line 10"
-                    "\n                                 (up to column 8)."
-                    "\n                      default: the whole input file"
+                    "\n    --help                displays this help message and exits."
+                    "\n    --help-config         prints config file documentation."
+                    "\n    --config=jsonfile     config file in json format."
+                    "\n                          default: jsonfile=compgpt.json"
+                    "\n    --create-config       creates config file and exits."
+                    "\n    --create-config=p     creates config file for a specified AI, and exits."
+                    "\n                          p in {gpt4,claude,ollama,openrouter}"
+                    "\n                          default: p=gpt4"
+                    "\n    --create-with-model=m specifies a submodel for AIs that support it."
+                    "\n                          i.e., openrouter, ollama"
+                    "\n    --harness-param=p     sets an optional parameter for the test harness."
+                    "\n                          default: none"
+                    "\n                          If set, the parameter is passed as second"
+                    "\n                          argument to the test script configured in"
+                    "\n                          the config file."
+                    "\n                          The tester is invoked with two arguments,"
+                    "\n                          the generated file and param:"
+                    "\n                            testScript genfile.cc p"
+                    "\n    --kernel=range        chooses a specific code segment for optimization."
+                    "\n                          range is specified in terms of line and optional column"
+                    "\n                          number."
+                    "\n                          The following are examples of valid options:"
+                    "\n                            0-10    Lines 0-10 (excluding Line 10)."
+                    "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
+                    "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
+                    "\n                                     (up to column 8)."
+                    "\n                          default: the whole input file"
                     "\n"
                     "\n  TestScript: success or failure is returned through the exit status"
                     "\n              a numeric quality score is returned on the last"
@@ -139,7 +144,7 @@ const char* confighelp = "The following configuration parameters can be set in t
 struct Settings
 {
   std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
-  std::string  optcompiler    = "/usr/bin/clang";
+  std::string  optcompiler    = "/usr/bin/clang++";
   std::string  optreport      = "-Rpass-missed=. -c";
   std::string  optcompile     = "-O3 -march=native -DNDEBUG=1";
   std::string  queryFile      = "query.json";
@@ -278,11 +283,13 @@ operator<<(std::ostream& os, SourceRange p)
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
-  enum Model { none = 0, error = 1, gpt4 = 2, claude = 3, ollama = 4 };
+  enum AI { none = 0, error = 1, gpt4 = 2, claude = 3, ollama = 4, openrouter = 5 };
 
   bool                     help              = false;
   bool                     helpConfig        = false;
-  Model                    configModel       = none;
+  bool                     showVersion       = false;
+  AI                       configAI          = none;
+  std::string              configModel       = "";
   std::string              configFileName    = "compgpt.json";
   std::string              harness           = "";
   std::filesystem::path    programPath       = "compgpt.bin";
@@ -304,6 +311,9 @@ void checkExistance(std::string_view filename)
 /// produces base settings for gpt4
 Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 {
+  if (!args.configModel.empty())
+    throw std::runtime_error{"GPT4 setup with model not yet supported."};
+
   std::string invokeai = args.programPath / "scripts/gpt4/exec-gpt-4o.sh";
 
   checkExistance(invokeai);
@@ -316,6 +326,9 @@ Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 /// produces base settings for claude
 Settings setupClaude(Settings settings, const CmdLineArgs& args)
 {
+  if (!args.configModel.empty())
+    throw std::runtime_error{"Claude setup with model not yet supported."};
+
   std::string invokeai = args.programPath / "scripts/claude/exec-claude.sh";
 
   checkExistance(invokeai);
@@ -332,19 +345,52 @@ Settings setupClaude(Settings settings, const CmdLineArgs& args)
 /// produces base settings for a local ollama
 Settings setupOllama(Settings settings, const CmdLineArgs& args)
 {
+  static const char* defaultModel = "llama3.2";
+
   std::string invokeai = args.programPath / "scripts/ollama/exec-ollama.sh";
+  std::string model    = args.configModel;
 
   checkExistance(invokeai);
+
+  if (model.empty())
+  {
+    model = defaultModel;
+    std::cout << "Using default model: " << model << std::endl;
+  }
 
   settings.responseFile   = "response.json";
   settings.responseField  = "message.content";
   settings.systemTextFile = std::string{};
   settings.roleOfAI       = "assistant";
-  settings.invokeai       = invokeai + " llama3.2";
+  settings.invokeai       = invokeai + " " + model;
 
   return settings;
 }
 
+/// produces base settings for a openrouter
+Settings setupOpenrouter(Settings settings, const CmdLineArgs& args)
+{
+  static const char* defaultModel = "google/gemini-2.0-flash-exp:free";
+
+  std::string invokeai = args.programPath / "scripts/openrouter/exec-openrouter.sh";
+  std::string model    = args.configModel;
+
+  checkExistance(invokeai);
+
+  if (model.empty())
+  {
+    model = defaultModel;
+    std::cout << "Using default model: " << model << std::endl;
+  }
+
+  settings.responseFile   = "response.json";
+  settings.responseField  = "message.content";
+  settings.systemTextFile = std::string{};
+  settings.roleOfAI       = "assistant";
+  settings.invokeai       = invokeai + " " + model;
+
+  return settings;
+}
 
 
 /// returns a C string for a boolean. If \p align is set true gets a trailing blank.
@@ -358,23 +404,21 @@ const char* as_string(bool v, bool align = false)
 }
 
 /// creates default settings for supported AI models.
-Settings modelDefaults(CmdLineArgs::Model m, const CmdLineArgs& args)
+Settings modelDefaults(CmdLineArgs::AI m, const CmdLineArgs& args)
 {
   using SetupFn    = std::function<Settings(Settings, const CmdLineArgs&)>;
-  using ModelSetup = std::unordered_map<CmdLineArgs::Model, SetupFn>;
+  using ModelSetup = std::unordered_map<CmdLineArgs::AI, SetupFn>;
 
-  static const ModelSetup modelSetup = { { CmdLineArgs::gpt4,   setupGPT4 },
-                                         { CmdLineArgs::claude, setupClaude },
-                                         { CmdLineArgs::ollama, setupOllama }
+  static const ModelSetup modelSetup = { { CmdLineArgs::gpt4,       setupGPT4 },
+                                         { CmdLineArgs::claude,     setupClaude },
+                                         { CmdLineArgs::ollama,     setupOllama },
+                                         { CmdLineArgs::openrouter, setupOpenrouter }
                                        };
-  try
-  {
-    return modelSetup.at(m)(Settings{}, args);
-  }
-  catch (...)
-  {
-    throw std::runtime_error{"Cannot configure unknown model."};
-  }
+
+  if (auto pos = modelSetup.find(m); pos != modelSetup.end())
+    return pos->second(Settings(), args);
+
+  throw std::runtime_error{"Unnable to configure unknown model."};
 }
 
 }
@@ -1576,7 +1620,7 @@ void createDefaultConfig(const CmdLineArgs& args)
 
   std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, modelDefaults(args.configModel, args));
+  writeSettings(ofs, modelDefaults(args.configAI, args));
 }
 
 /// Functor processing command line arguments
@@ -1589,12 +1633,19 @@ struct CmdLineProc
     opts.programPath = std::move(absPath);
   }
 
-  CmdLineArgs::Model
-  parseModel(std::string_view m)
+  CmdLineArgs::AI
+  parseAI(std::string_view m)
   {
-    if (m == "gpt4")   return CmdLineArgs::gpt4;
-    if (m == "claude") return CmdLineArgs::claude;
-    if (m == "ollama") return CmdLineArgs::ollama;
+    using ModelNames = std::unordered_map<std::string_view, CmdLineArgs::AI>;
+
+    static const ModelNames modelNames = { { "gpt4",       CmdLineArgs::gpt4 },
+                                           { "claude",     CmdLineArgs::claude },
+                                           { "ollama",     CmdLineArgs::ollama },
+                                           { "openrouter", CmdLineArgs::openrouter }
+                                         };
+
+    if (auto pos = modelNames.find(m); pos != modelNames.end())
+      return pos->second;
 
     return CmdLineArgs::error;
   }
@@ -1668,16 +1719,20 @@ struct CmdLineProc
   {
     if (arg.rfind(phelpconfig, 0) != std::string::npos)
       opts.helpConfig = true;
+    else if (arg.rfind(pversion, 0) != std::string::npos)
+      opts.showVersion = true;
     else if (arg.rfind(phelp, 0) != std::string::npos)
       opts.help = true;
     else if (arg.rfind(phelp2, 0) != std::string::npos)
       opts.help = true;
     else if (arg.rfind(phelp3, 0) != std::string::npos)
       opts.help = true;
-    else if (arg.rfind(pcreateconfig2, 0) != std::string::npos)
-      opts.configModel = parseModel(arg.substr(pcreateconfig2.size()));
-    else if (arg.rfind(pcreateconfig, 0) != std::string::npos)
-      opts.configModel = CmdLineArgs::gpt4;
+    else if (arg.rfind(pconfigmodel, 0) != std::string::npos)
+      opts.configModel = arg.substr(pconfigmodel.size());
+    else if (arg.rfind(pconfigai2, 0) != std::string::npos)
+      opts.configAI = parseAI(arg.substr(pconfigai2.size()));
+    else if (arg.rfind(pconfigai, 0) != std::string::npos)
+      opts.configAI = CmdLineArgs::gpt4;
     else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pharness, 0) != std::string::npos)
@@ -1694,24 +1749,28 @@ struct CmdLineProc
 
   CmdLineArgs opts;
 
+  static std::string pversion;
   static std::string phelp;
   static std::string phelp2;
   static std::string phelp3;
   static std::string phelpconfig;
-  static std::string pcreateconfig;
-  static std::string pcreateconfig2;
+  static std::string pconfigai;
+  static std::string pconfigai2;
+  static std::string pconfigmodel;
   static std::string pconfig;
   static std::string pharness;
   static std::string pkernel;
   static std::string pcsvsummary;
 };
 
+std::string CmdLineProc::pversion       = "--version";
 std::string CmdLineProc::phelp          = "--help";
 std::string CmdLineProc::phelp2         = "-help";
 std::string CmdLineProc::phelp3         = "-h";
 std::string CmdLineProc::phelpconfig    = "--help-config";
-std::string CmdLineProc::pcreateconfig  = "--create-config";
-std::string CmdLineProc::pcreateconfig2 = "--create-config=";
+std::string CmdLineProc::pconfigai      = "--create-config";
+std::string CmdLineProc::pconfigai2     = "--create-config=";
+std::string CmdLineProc::pconfigmodel   = "--create-with-model=";
 std::string CmdLineProc::pconfig        = "--config=";
 std::string CmdLineProc::pharness       = "--harness-param=";
 std::string CmdLineProc::pkernel        = "--kernel=";
@@ -1987,6 +2046,12 @@ int main(int argc, char** argv)
 
   CmdLineArgs cmdlnargs = parseArguments(getCmdlineArgs(argv, argv+argc));
 
+  if (cmdlnargs.showVersion)
+  {
+    std::cout << versionString << std::endl;
+    return 0;
+  }
+
   if (cmdlnargs.help)
   {
     std::cout << synopsis << std::endl
@@ -2002,7 +2067,7 @@ int main(int argc, char** argv)
     return 0;
   }
 
-  if (cmdlnargs.configModel != CmdLineArgs::none)
+  if (cmdlnargs.configAI != CmdLineArgs::none)
   {
     createDefaultConfig(cmdlnargs);
     return 0;
