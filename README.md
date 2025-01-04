@@ -11,7 +11,7 @@ CompilerGPT can be configured for multiple AI backends (e.g., Python API with gp
 ## Getting started
 
 Requirements:
-* C++ compiler supporting C++20
+* C++ compiler supporting C++20, e.g. GCC 12
   + boost json (boost > 1.78)
 * pyhton3 (only for OpenAI's API)
 
