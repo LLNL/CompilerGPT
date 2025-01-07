@@ -14,7 +14,7 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
 Requirements:
 * C++ compiler supporting C++20, e.g. GCC 12
   + boost json (boost > 1.78)
-* pyhton3 (only for OpenAI's API)
+* curl
 
 Directory structure:
 * scripts: scripts to interact with AI (e.g., gpt and claude)
