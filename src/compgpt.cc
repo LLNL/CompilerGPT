@@ -31,8 +31,6 @@ const std::string CC_MARKER_LIMIT = "```";
 namespace
 {
 
-const char* versionString = "1.25.1.3";
-
 const char* synopsis = "compgpt: compiler driven code optimizations through LLMs"
                        "\n  description: feeds clang optimization report of a kernel to"
                        "\n               an LLM and asks it to optimize the source code"
@@ -311,14 +309,25 @@ void checkExistance(std::string_view filename)
 /// produces base settings for gpt4
 Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 {
-  if (!args.configModel.empty())
-    throw std::runtime_error{"GPT4 setup with model not yet supported."};
+  static const char* defaultModel = "gpt-4o";
 
-  std::string invokeai = args.programPath / "scripts/gpt4/exec-gpt-4o.sh";
+  std::string invokeai = args.programPath / "scripts/gpt4/exec-openai.sh";
+  std::string model    = args.configModel;
 
   checkExistance(invokeai);
 
-  settings.invokeai = invokeai;
+  if (model.empty())
+  {
+    model = defaultModel;
+    std::cout << "Using default model: " << model << std::endl;
+  }
+
+  settings.invokeai       = invokeai;
+  settings.responseFile   = "response.json";
+  settings.responseField  = "choices[0].message.content";
+  settings.systemTextFile = std::string{};
+  settings.roleOfAI       = "assistant";
+  settings.invokeai       = invokeai + " " + model;
 
   return settings;
 }
@@ -2048,7 +2057,7 @@ int main(int argc, char** argv)
 
   if (cmdlnargs.showVersion)
   {
-    std::cout << versionString << std::endl;
+    std::cout << TOOL_VERSION << std::endl;
     return 0;
   }
 

@@ -1,12 +1,13 @@
 # CompilerGPT
 
-Compiler optimization reports are an important tool for performance engineers. However, they are often too complex for non compiler experts.
+Compiler optimization reports are an important tool for performance engineers. However, they are often too complex for non compiler experts. CompilerGPT attempts to harness the power of LLM AI models to automatically attempt optimizations suggested by the optimization reports.
 
 CompilerGPT is a framework that submits compiler optimization reports (i.e., Clang) and the source code to an LLM. The LLM is prompted to prioritize the findings in the optimization reports and then to make changes in the code accordingly. An automated test harness validates the changes. The test harness provides feedback to the LLM on any errors that were introduced to the code base.
 
 CompilerGPT iterates with the LLM a given number of times and reports on the obtained correctness and perfomance results of each iteration.
 
-CompilerGPT can be configured for multiple AI backends (e.g., Python API with gpt and curl with claude).
+CompilerGPT calls AI modules through scripts which makes it flexible to use with different frameworks. Most connections are based on CURL. A legacy configuration for OpenAI's Python framework also exists. CompilerGPT's auto-configuration currently supports OpenAI, Anthropic, openrouter, and ollama.
+
 
 ## Getting started
 
@@ -62,8 +63,21 @@ config file has to be tweaked manually to support that use case.
 
 
 ## License
-See the LICENSE file in the repository.
+
+CompilerGPT is distributed under a BSD 3 license. 
+
+SPDX-License-Identifier: BSD-3-Clause
+
+See the LICENSE file for details.
+
+Open-source benchmarks distributed with CompilerGPT retain the original licensing. See the directories for license details.
 
 ## Project status
-1.0 Demonstrates the basic workflow
+
+1.x Demonstrates the basic workflow
+
+## Source Code Release
+
+LLNL-CODE-2000601
+
 

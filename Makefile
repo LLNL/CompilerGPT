@@ -1,5 +1,5 @@
 -include env.mk
-
+-include version.mk
 
 BUILD_TYPE ?= debug
 PROJECT_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
@@ -22,8 +22,9 @@ WARNFLAG   ?= -Wall -Wextra -pedantic
 OPTFLAG    ?= -O3
 CPUARCH    ?= -march=native
 DBGFLAG    ?= -DNDEBUG=1
+VERSIONDEF ?= -DTOOL_VERSION=\"$(VERSION_STRING)\"
 
-CXXFLAGS   := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG) -pthread
+CXXFLAGS   := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG) $(VERSIONDEF)
 
 $(info $(OBJECTS))
 
