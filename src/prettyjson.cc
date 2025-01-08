@@ -49,53 +49,70 @@ json::value
 parse_file( char const* filename )
 {
     std::ifstream f(filename);
-    
+
     return readJsonFile(f);
 }
 
-void
+std::size_t
 printUnescaped(std::ostream& os, std::string_view code)
 {
-  char last = ' ';
+  std::size_t linecnt = 1;
+  char        last = ' ';
+  bool        lastIsLineBreak = false;
 
   // print to os while handling escaped characters
   for (char ch : code)
   {
-    if (last == '\\') 
+    lastIsLineBreak = false;
+
+    if (last == '\\')
     {
       switch (ch)
       {
         case 'f':  /* form feed */
-                   os << "\n\n";
+                   ++linecnt;
+                   os << '\n';
+                   [[fallthrough]];
+
+        case 'n':  ++linecnt;
+                   os << '\n';
+                   lastIsLineBreak = true;
                    break;
-                   
-        case 'n':  os << '\n'; 
+
+        case 't':  os << "  ";
                    break;
-                   
-        case 't':  os << "  "; 
-                   break;
-                   
+
         case 'a':  /* bell */
         case 'v':  /* vertical tab */
         case 'r':  /* carriage return */
                    break;
-                   
-        case '\'': 
-        case '"' : 
-        case '?' : 
+
+        case '\'':
+        case '"' :
+        case '?' :
         case '\\': os << ch;
                    break;
-        
+
         default:   os << last << ch;
       }
-      
+
       last = ' ';
+    }
+    else if (ch == '\n')
+    {
+      os << ch;
+      ++linecnt;
+      lastIsLineBreak = true;
     }
     else if (ch == '\\')
       last = ch;
     else
       os << ch;
-  }  
+  }
+
+  if (!lastIsLineBreak) os << '\n';
+
+  return linecnt;
 }
 
 

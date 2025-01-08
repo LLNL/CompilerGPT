@@ -46,7 +46,7 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n    -h"
                     "\n    -help"
                     "\n    --help                displays this help message and exits."
-                    "\n    --help-config         prints config file documentation."
+                    "\n    --help-config         prints config file documentation and exits."
                     "\n    --config=jsonfile     config file in json format."
                     "\n                          default: jsonfile=compgpt.json"
                     "\n    --create-config       creates config file and exits."
@@ -54,23 +54,18 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n                          p in {gpt4,claude,ollama,openrouter}"
                     "\n                          default: p=gpt4"
                     "\n    --create-with-model=m specifies a submodel for AIs that support it."
-                    "\n                          i.e., openrouter, ollama"
+                    "\n                          i.e., got4, openrouter, ollama"
                     "\n    --harness-param=p     sets an optional parameter for the test harness."
                     "\n                          default: none"
-                    "\n                          If set, the parameter is passed as second"
-                    "\n                          argument to the test script configured in"
-                    "\n                          the config file."
-                    "\n                          The tester is invoked with two arguments,"
-                    "\n                          the generated file and param:"
-                    "\n                            testScript genfile.cc p"
+                    "\n                          If set, the parameter can be accessed by the testScript "
+                    "\n                          configuration by using variable <<harness>>"
                     "\n    --kernel=range        chooses a specific code segment for optimization."
-                    "\n                          range is specified in terms of line and optional column"
-                    "\n                          number."
+                    "\n                          range is specified in terms of line numbers."
                     "\n                          The following are examples of valid options:"
                     "\n                            0-10    Lines 0-10 (excluding Line 10)."
-                    "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
-                    "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
-                    "\n                                     (up to column 8)."
+                    //~ "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
+                    //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
+                    //~ "\n                                     (up to column 8)."
                     "\n                          default: the whole input file"
                     "\n"
                     "\n  TestScript: success or failure is returned through the exit status"
@@ -106,11 +101,12 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n                 if not set, the original file extension will be used."
                          "\n                 note: the setting may be useful for language translation tasks"
                          "\n  testScript     an optional string pointing to an executable that assesses the AI output"
-                         "\n                 the test is called with one or two arguments"
-                         "\n                    testScript generatedFile [harnessParam]"
-                         "\n                       harnessParam is provided by the command line argument --harness-param="
-                         "\n                 a non-0 return value indicates testing failure"
-                         "\n                 the last output line should contain a quality score (floating point)."
+                         "\n                   CompilerGpt variables in the string are expanded before the test script"
+                         "\n                   is invoked."
+                         "\n                   CompilerGpt variables include: <<harness>>, <<optcompiler>>, <<optcompile>>"
+                         "\n                                                  <<invokeai>>, <<optreport>>, <<filename>>."
+                         "\n                 a non-zero exit value indicates that testing faied."
+                         "\n                 if successful, the last output line should contain a quality score (floating point)."
                          "\n                   (lower is better)."
                          "\n                 if the testScript is not set, it is assumed that the generated"
                          "\n                 code passes the regression tests with a quality score of 0."
@@ -126,14 +122,14 @@ const char* confighelp = "The following configuration parameters can be set in t
                          "\n  successPrompt  follow up prompt."
                          "\n  compFailPrompt prompt when the AI generated code does not compile."
                          "\n  testFailPrompt prompt when the AI generated code produces errors with the test harness."
-                         "\n  Prompt text can contain variables <<code>> [only with firstPrompt]"
-                         "\n                 and <<report>>."
+                         "\n"
+                         "\n  Prompt text can contain variables <<code>> [only with firstPrompt] and <<report>>."
                          "\n"
                          "\nIteration control:"
                          "\n  iterations     integer number specifying the maximum number of iterations."
                          "\n  stopOnSuccess  boolean value. if true, the program terminates as soon as testScript reports success."
                          "\n"
-                         "\nGeneral:"
+                         "\nNote:"
                          "\n  A file with default settings can be generated using --create-config."
                          "\n  The config file only needs entries when a default setting is overridden."
                          ;
@@ -667,7 +663,7 @@ fileLocation(const std::string& s)
 
 /// processes a log to capture diagnostic output together with its location information.
 /// filters out any include header trace.
-struct DiagnosticFilter2
+struct DiagnosticFilter
 {
   void appendCurrentDiagnostic()
   {
@@ -727,8 +723,7 @@ filterMessageOutput( const Settings& settings,
 
   std::vector<std::string> lines = splitString(out);
   std::vector<Diagnostic>  diagnosed = std::for_each( lines.begin(), lines.end(),
-                                                      //~ DiagnosticFilter{filename, rng}
-                                                      DiagnosticFilter2{}
+                                                      DiagnosticFilter{}
                                                     );
 
   auto outsideSourceRange =
@@ -844,9 +839,6 @@ compileResult(const Settings& settings, const CmdLineArgs& cmdline)
 /// calls AI and returns result in response file
 void invokeAI(const Settings& settings)
 {
-  //~ std::cerr << "!CallAI: " << settings.invokeai << std::endl;
-  //~ return;
-
   trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
 
   std::vector<std::string> noargs;
@@ -864,17 +856,6 @@ void invokeAI(const Settings& settings)
                              );
 
   ios.run();
-
-/*
-  std::vector<std::string> res;
-  std::stringstream        report;
-  std::string              line;
-
-  report.str(errstr.get());
-
-  while (std::getline(report, line))
-    res.emplace_back(std::move(line));
-*/
 
   std::cout << outstr.get() << std::endl;
   std::cerr << errstr.get() << std::endl;
@@ -999,17 +980,6 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
                               );
 
   ios.run();
-
-/*
-  std::vector<std::string> res;
-  std::stringstream        report;
-  std::string              line;
-
-  report.str(errstr.get());
-
-  while (std::getline(report, line))
-    res.emplace_back(std::move(line));
-*/
 
   const bool success = exitCode.get() == 0;
 
@@ -1345,8 +1315,8 @@ storeGeneratedFile( const Settings& settings,
     throw MissingCodeError{"Cannot find markdown code block in AI output."};
   }
 
-  const std::size_t   beg       = mark + marker.size();
-  const std::size_t   lim       = response.find(CC_MARKER_LIMIT, beg);
+  const std::size_t beg = mark + marker.size();
+  const std::size_t lim = response.find(CC_MARKER_LIMIT, beg);
 
   if (lim == std::string::npos)
   {
@@ -1360,14 +1330,19 @@ storeGeneratedFile( const Settings& settings,
     throw MultipleCodeSectionsError{"Found multiple code sections."};
   }
 
-  std::ofstream outf{newFile};
+  std::ofstream     outf{newFile};
 
   copyFromOriginalFile(fileName, outf, SourcePoint::origin(), cmdline.kernel.beg());
   const std::size_t kernellen = printUnescaped(outf, response.substr(beg, lim - beg));
   copyFromOriginalFile(fileName, outf, cmdline.kernel.lim(), SourcePoint::eof());
-  const std::size_t kernellim = cmdline.kernel.beg().line() + kernellen;
 
-  return { newFile, { cmdline.kernel.beg(), { kernellim, 0 } } };
+  SourcePoint       newlim = SourcePoint::eof();
+  const bool        fullrange = cmdline.kernel.lim() == SourcePoint::eof();
+
+  if (!fullrange)
+    newlim = SourcePoint{cmdline.kernel.beg().line() + kernellen, 0};
+
+  return { newFile, { cmdline.kernel.beg(), newlim } };
 }
 
 /// returns the content of stream \p is as string.
@@ -1417,6 +1392,7 @@ std::string jsonField(const json::value& val, std::string_view fld)
     // must be an array index
     const std::size_t   lim = fld.find_first_of("]");
     assert((lim > 0) && (lim != std::string_view::npos));
+
     std::string_view    idx = fld.substr(1, lim-1);
     const json::array&  arr = val.as_array();
     int                 num = 0;
