@@ -4,7 +4,7 @@ location="$1"
 
 mkdir -p "$location"
 
-mv core[0-9].*cc "$location"/
+mv core[0-9]*.cc "$location"/
 cp core.cc "$location"/
 cp constants.h "$location"/
 cp eval.sh "$location"/

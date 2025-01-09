@@ -50,15 +50,17 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n    --config=jsonfile     config file in json format."
                     "\n                          default: jsonfile=compgpt.json"
                     "\n    --create-config       creates config file and exits."
-                    "\n    --create-config=p     creates config file for a specified AI, and exits."
+                    "\n    --config:ai=p         creates config file for a specified AI."
                     "\n                          p in {gpt4,claude,ollama,openrouter}"
                     "\n                          default: p=gpt4"
-                    "\n    --create-with-model=m specifies a submodel for AIs that support it."
-                    "\n                          i.e., got4, openrouter, ollama"
+                    "\n    --config:model=m      specifies a submodel for AIs (e.g., gpt4o)."
+                    "\n    --config:from=f       specifies another config file to initialize the"
+                    "\n                          the config settings. The AI specific settings will"
+                    "\n                          be overridden according to the specified AI and model."
                     "\n    --harness-param=p     sets an optional parameter for the test harness."
                     "\n                          default: none"
                     "\n                          If set, the parameter can be accessed by the testScript "
-                    "\n                          configuration by using variable <<harness>>"
+                    "\n                          configuration using variable <<harness>>"
                     "\n    --kernel=range        chooses a specific code segment for optimization."
                     "\n                          range is specified in terms of line numbers."
                     "\n                          The following are examples of valid options:"
@@ -277,14 +279,16 @@ operator<<(std::ostream& os, SourceRange p)
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
-  enum AI { none = 0, error = 1, gpt4 = 2, claude = 3, ollama = 4, openrouter = 5 };
+  enum AI { gpt4=0, claude=1, ollama=2, openrouter=3, none=4, error=5 };
 
   bool                     help              = false;
   bool                     helpConfig        = false;
   bool                     showVersion       = false;
+  bool                     configCreate      = false;
   AI                       configAI          = none;
   std::string              configModel       = "";
   std::string              configFileName    = "compgpt.json";
+  std::string              configFrom        = "";
   std::string              harness           = "";
   std::filesystem::path    programPath       = "compgpt.bin";
   SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
@@ -388,7 +392,7 @@ const char* as_string(bool v, bool align = false)
 }
 
 /// creates default settings for supported AI models.
-Settings modelDefaults(CmdLineArgs::AI m, const CmdLineArgs& args)
+Settings createSettings(Settings settings, const CmdLineArgs& args)
 {
   using SetupFn    = std::function<Settings(Settings, const CmdLineArgs&)>;
   using ModelSetup = std::unordered_map<CmdLineArgs::AI, SetupFn>;
@@ -399,8 +403,8 @@ Settings modelDefaults(CmdLineArgs::AI m, const CmdLineArgs& args)
                                          { CmdLineArgs::openrouter, setupOpenrouter }
                                        };
 
-  if (auto pos = modelSetup.find(m); pos != modelSetup.end())
-    return pos->second(Settings(), args);
+  if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
+    return pos->second(settings, args);
 
   throw std::runtime_error{"Unnable to configure unknown model."};
 }
@@ -1510,9 +1514,13 @@ void writeSettings(std::ostream& os, const Settings& settings)
 }
 
 /// loads settings from a JSON file \p configFileName
-Settings loadConfig(const std::string& configFileName)
+Settings readSettings(const std::string& configFileName)
 {
   Settings      settings;
+
+  if (configFileName.empty())
+    return settings;
+
   std::ifstream configFile{configFileName};
 
   if (!configFile.good())
@@ -1571,20 +1579,31 @@ Settings loadConfig(const std::string& configFileName)
 }
 
 /// creates JSON file with default values
-void createDefaultConfig(const CmdLineArgs& args)
+void createConfigFile(CmdLineArgs args)
 {
   if (std::filesystem::exists(args.configFileName))
   {
     std::cerr << "config file " << args.configFileName << " exists."
               << "\n  not creating a new file! (delete file or choose different file name)"
               << std::endl;
-
     return;
   }
 
+  if (args.configAI == CmdLineArgs::none)
+  {
+    std::cerr << "Unspecified AI component. Using gpt4 as default component."
+              << std::endl;
+
+    args.configAI = CmdLineArgs::gpt4;
+  }
+
+  std::cerr << "create " << args.configFileName << " overridding " << args.configFrom
+            << std::endl;
+
+  Settings      settings = readSettings(args.configFrom);
   std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, modelDefaults(args.configAI, args));
+  writeSettings(ofs, createSettings(settings, args));
 }
 
 /// Functor processing command line arguments
@@ -1693,10 +1712,12 @@ struct CmdLineProc
       opts.help = true;
     else if (arg.rfind(pconfigmodel, 0) != std::string::npos)
       opts.configModel = arg.substr(pconfigmodel.size());
-    else if (arg.rfind(pconfigai2, 0) != std::string::npos)
-      opts.configAI = parseAI(arg.substr(pconfigai2.size()));
     else if (arg.rfind(pconfigai, 0) != std::string::npos)
-      opts.configAI = CmdLineArgs::gpt4;
+      opts.configAI = parseAI(arg.substr(pconfigai.size()));
+    else if (arg.rfind(pconfigcreate, 0) != std::string::npos)
+      opts.configCreate = true;
+    else if (arg.rfind(pconfigfrom, 0) != std::string::npos)
+      opts.configFrom = arg.substr(pconfigfrom.size());
     else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pharness, 0) != std::string::npos)
@@ -1718,9 +1739,10 @@ struct CmdLineProc
   static std::string phelp2;
   static std::string phelp3;
   static std::string phelpconfig;
+  static std::string pconfigcreate;
   static std::string pconfigai;
-  static std::string pconfigai2;
   static std::string pconfigmodel;
+  static std::string pconfigfrom;
   static std::string pconfig;
   static std::string pharness;
   static std::string pkernel;
@@ -1732,9 +1754,10 @@ std::string CmdLineProc::phelp          = "--help";
 std::string CmdLineProc::phelp2         = "-help";
 std::string CmdLineProc::phelp3         = "-h";
 std::string CmdLineProc::phelpconfig    = "--help-config";
-std::string CmdLineProc::pconfigai      = "--create-config";
-std::string CmdLineProc::pconfigai2     = "--create-config=";
-std::string CmdLineProc::pconfigmodel   = "--create-with-model=";
+std::string CmdLineProc::pconfigcreate  = "--create-config";
+std::string CmdLineProc::pconfigai      = "--config:ai=";
+std::string CmdLineProc::pconfigmodel   = "--config:model=";
+std::string CmdLineProc::pconfigfrom    = "--config:from=";
 std::string CmdLineProc::pconfig        = "--config=";
 std::string CmdLineProc::pharness       = "--harness-param=";
 std::string CmdLineProc::pkernel        = "--kernel=";
@@ -2031,9 +2054,9 @@ int main(int argc, char** argv)
     return 0;
   }
 
-  if (cmdlnargs.configAI != CmdLineArgs::none)
+  if (cmdlnargs.configCreate)
   {
-    createDefaultConfig(cmdlnargs);
+    createConfigFile(cmdlnargs);
     return 0;
   }
 
@@ -2046,7 +2069,7 @@ int main(int argc, char** argv)
   }
 
 
-  Settings          settings   = loadConfig(cmdlnargs.configFileName);
+  Settings          settings   = readSettings(cmdlnargs.configFileName);
 
   std::cout << "Settings: ";
   writeSettings(std::cout, settings);

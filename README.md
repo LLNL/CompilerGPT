@@ -23,7 +23,6 @@ Directory structure:
 
 GPT Environment: Default queries will use OpenAI's API (in scripts/gpt4/). Three environemnt variables control the invocation:
 * OPENAI\_API\_KEY the openai key for queries
-* OPENAI\_ENV\_DIR (optional) the location of the python environment with the openai connection framework. If unspecified, python3 will be used without special environment.
 * SSL\_CERT\_FILE (optional) the location of a root certificate to avoid SSL connection errors.\
   typical error message on Linux:  \[SSL: CERTIFICATE\_VERIFY\_FAILED\] certificate verify failed: self signed certificate in certificate chain
 
@@ -42,35 +41,37 @@ Call CompilerGPT:
 
     compgpt.bin --config=configfile.json c++-source-file
 
-The configurtation is read from the json file. The config file specifies how to interact with a target compiler and the LLM system.
+The configuration is read from the json file. The config file specifies how to interact with a target compiler and the LLM system.
 
 
-A default configuration for GPT4 can be created by
+A default configuration can be created by
 
-    compgpt.bin --config=configfile.json --create-config=gpt4
-
-On BSD systems (such as OS X), the script scripts/gpt4/execquery-bsd.sh can be used instead of scripts/gpt4/execquery.sh to avoid issues with the GNU readlink utility.
+    compgpt.bin --create-config --config=configfile.json
 
 Claude is an alternative to the GPT model. It can be used in a similar way than gpt, but it requires a different configuration. A default configuration file can be created by
 
-    compgpt.bin --config=configfile.json --create-config=claude
+    compgpt.bin --create-config --config=claude.json --config:ai=claude --config:model=claude-3-5-sonnet-20241022
 
-Note, the interaction with GPT uses OpenAI's Python library, while the interaction with
-claude is based on curl. This demonstrates the flexibility of the driver.
+New configurations can be derived from existing ones by using --config:from=configfile.json . This can be useful to create various configurations for different AI components that use the same prompts and evaluation scripts.
+
+    compgpt.bin --create-config --config=ollama.json --config:ai=ollana --config:model=llama3.3 --config:from=claude.json
+
+
+### Other use cases
 
 In addition, compgpt can be setup to use AI for translation projects. Currently, the
-config file has to be tweaked manually to support that use case.
+config file needs to be tweaked manually to support that use case.
 
 
 ## License
 
-CompilerGPT is distributed under a BSD 3 license. 
+CompilerGPT is distributed under a BSD 3 license.
 
 SPDX-License-Identifier: BSD-3-Clause
 
 See the LICENSE file for details.
 
-Open-source benchmarks distributed with CompilerGPT retain the original licensing. See the directories for license details.
+Third-party benchmarks distributed with CompilerGPT retain the original licensing. See the respective directories for license details.
 
 ## Project status
 
