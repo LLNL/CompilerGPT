@@ -2,6 +2,15 @@
 
 set -e
 
+# set claude-3-5-sonnet-20241022 as the default model 
+#   (set by the driver; default supports legacy configurations)
+model="claude-3-5-sonnet-20241022"
+
+if [ -n "$1" ]; then
+  model="$1"
+fi
+
+
 numtokens=4096
 maxtokens=8192
 
@@ -25,7 +34,7 @@ fi
 # write curl data file data
 
 echo "{" >q.json
-echo "  \"model\": \"claude-3-5-sonnet-20241022\"," >>q.json
+echo "  \"model\": \"$model\"," >>q.json
 echo "  \"max_tokens\": $numtokens," >>q.json
 
 if [[ 0 -lt ${#system} ]]; then

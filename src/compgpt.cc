@@ -301,13 +301,16 @@ void checkExistance(std::string_view filename)
             << std::endl;
 }
 
-
-/// produces base settings for gpt4
-Settings setupGPT4(Settings settings, const CmdLineArgs& args)
+// setup connection for curl scripts
+Settings setupWithCurl( Settings settings,
+                        const CmdLineArgs& args,
+                        const char* aiscript,
+                        const char* defaultModel,
+                        const char* responseField,
+                        const char* systemTextFile
+                      )
 {
-  static const char* defaultModel = "gpt-4o";
-
-  std::string invokeai = args.programPath / "scripts/gpt4/exec-openai.sh";
+  std::string invokeai = args.programPath / aiscript;
   std::string model    = args.configModel;
 
   checkExistance(invokeai);
@@ -320,81 +323,57 @@ Settings setupGPT4(Settings settings, const CmdLineArgs& args)
 
   settings.invokeai       = invokeai;
   settings.responseFile   = "response.json";
-  settings.responseField  = "choices[0].message.content";
-  settings.systemTextFile = std::string{};
+  settings.responseField  = responseField;
+  settings.systemTextFile = systemTextFile;
   settings.roleOfAI       = "assistant";
   settings.invokeai       = invokeai + " " + model;
 
   return settings;
+}
+
+
+/// produces base settings for gpt4
+Settings setupGPT4(Settings settings, const CmdLineArgs& args)
+{
+  static const char* aiScript       = "scripts/gpt4/exec-openai.sh";
+  static const char* defaultModel   = "gpt-4o";
+  static const char* responseField  = "choices[0].message.content";
+  static const char* systemTextFile = "";
+
+  return setupWithCurl(settings, args, aiScript, defaultModel, responseField, systemTextFile);
 }
 
 /// produces base settings for claude
 Settings setupClaude(Settings settings, const CmdLineArgs& args)
 {
-  if (!args.configModel.empty())
-    throw std::runtime_error{"Claude setup with model not yet supported."};
+  static const char* aiScript       = "scripts/claude/exec-claude.sh";
+  static const char* defaultModel   = "claude-3-5-sonnet-20241022";
+  static const char* responseField  = "content[0].text";
+  static const char* systemTextFile = "system.txt";
 
-  std::string invokeai = args.programPath / "scripts/claude/exec-claude.sh";
-
-  checkExistance(invokeai);
-
-  settings.responseFile   = "response.json";
-  settings.responseField  = "content[0].text";
-  settings.systemTextFile = "system.txt";
-  settings.roleOfAI       = "assistant";
-  settings.invokeai       = invokeai;
-
-  return settings;
+  return setupWithCurl(settings, args, aiScript, defaultModel, responseField, systemTextFile);
 }
 
 /// produces base settings for a local ollama
 Settings setupOllama(Settings settings, const CmdLineArgs& args)
 {
-  static const char* defaultModel = "llama3.2";
+  static const char* aiScript       = "scripts/ollama/exec-ollama.sh";
+  static const char* defaultModel   = "llama3.2";
+  static const char* responseField  = "message.content";
+  static const char* systemTextFile = "";
 
-  std::string invokeai = args.programPath / "scripts/ollama/exec-ollama.sh";
-  std::string model    = args.configModel;
-
-  checkExistance(invokeai);
-
-  if (model.empty())
-  {
-    model = defaultModel;
-    std::cout << "Using default model: " << model << std::endl;
-  }
-
-  settings.responseFile   = "response.json";
-  settings.responseField  = "message.content";
-  settings.systemTextFile = std::string{};
-  settings.roleOfAI       = "assistant";
-  settings.invokeai       = invokeai + " " + model;
-
-  return settings;
+  return setupWithCurl(settings, args, aiScript, defaultModel, responseField, systemTextFile);
 }
 
 /// produces base settings for a openrouter
 Settings setupOpenrouter(Settings settings, const CmdLineArgs& args)
 {
-  static const char* defaultModel = "google/gemini-2.0-flash-exp:free";
+  static const char* aiScript       = "scripts/openrouter/exec-openrouter.sh";
+  static const char* defaultModel   = "google/gemini-2.0-flash-exp:free";
+  static const char* responseField  = "message.content";
+  static const char* systemTextFile = "";
 
-  std::string invokeai = args.programPath / "scripts/openrouter/exec-openrouter.sh";
-  std::string model    = args.configModel;
-
-  checkExistance(invokeai);
-
-  if (model.empty())
-  {
-    model = defaultModel;
-    std::cout << "Using default model: " << model << std::endl;
-  }
-
-  settings.responseFile   = "response.json";
-  settings.responseField  = "message.content";
-  settings.systemTextFile = std::string{};
-  settings.roleOfAI       = "assistant";
-  settings.invokeai       = invokeai + " " + model;
-
-  return settings;
+  return setupWithCurl(settings, args, aiScript, defaultModel, responseField, systemTextFile);
 }
 
 

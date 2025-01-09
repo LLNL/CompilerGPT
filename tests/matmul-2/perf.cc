@@ -107,6 +107,7 @@ int main()
 {
   using time_point = std::chrono::time_point<std::chrono::system_clock>;
 
+  assert_size_check();
   assert_datatype_size();
 
   SimpleMatrix lhs{1483, 881};
@@ -114,12 +115,12 @@ int main()
 
   init(lhs); init(rhs);
 
-  time_point   starttime = std::chrono::system_clock::now();
-  SimpleMatrix res = lhs*rhs;
-  time_point   endtime = std::chrono::system_clock::now();
+  time_point   starttime   = std::chrono::system_clock::now();
+  SimpleMatrix res         = lhs*rhs;
+  time_point   endtime     = std::chrono::system_clock::now();
   int          elapsedtime = std::chrono::duration_cast<std::chrono::milliseconds>(endtime-starttime).count();
 
-  SimpleMatrix exp = mul(lhs,rhs);
+  SimpleMatrix exp = mul(lhs, rhs);
 
   try
   {
