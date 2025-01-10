@@ -1,10 +1,10 @@
 -include env.mk
 -include version.mk
 
-BUILD_TYPE ?= debug
+BUILDTYPE ?= debug
 PROJECT_DIR := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
-ifeq ($(BUILD_TYPE),debug)
+ifeq ($(BUILDTYPE),debug)
   OPTFLAG    ?= -O0
   DBGFLAG    ?= -ggdb
 endif
