@@ -58,10 +58,6 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n    --config:from=f       specifies another config file to initialize the"
                     "\n                          the config settings. The AI specific settings will"
                     "\n                          be overridden according to the specified AI and model."
-                    "\n    --harness-param=p     sets an optional parameter for the test harness."
-                    "\n                          default: none"
-                    "\n                          If set, the parameter can be accessed by the testScript "
-                    "\n                          configuration using variable <<harness>>"
                     "\n    --kernel=range        chooses a specific code segment for optimization."
                     "\n                          range is specified in terms of line numbers."
                     "\n                          The following are examples of valid options:"
@@ -70,6 +66,8 @@ const char* usage = "usage: compgpt switches source-file"
                     //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
                     //~ "\n                                     (up to column 8)."
                     "\n                          default: the whole input file"
+                    "\n    --var:n=t             Introduces a variable named n and sets it to t."
+                    "\n                          The variable can be accessed using <<n>>."
                     "\n"
                     "\n  TestScript: success or failure is returned through the exit status"
                     "\n              a numeric quality score is returned on the last"
@@ -92,7 +90,7 @@ const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal 
 const char* testScriptDoc     = "an optional string pointing to an executable that assesses the AI output."
                                 " CompilerGpt variables in the string are expanded before the test script"
                                 " is invoked."
-                                " CompilerGpt variables include: <<harness>>, <<compiler>>,"
+                                " CompilerGpt variables include: <<compiler>>,"
                                 " <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
                                 " A non-zero exit value indicates that testing faied."
                                 " If successful, the last output line should contain a quality score"
@@ -163,7 +161,7 @@ void printConfigHelp(std::ostream& os)
 /// encapsulates all settings that can be configured through a JSON file.
 struct Settings
 {
-  std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
+  std::string  invokeai       = "/path/to/ai/invocation";
   std::string  compiler       = "clang++";
   std::string  compileflags   = "-O3 -march=native -DNDEBUG=1";
   std::string  optreport      = "-Rpass-missed=. -c";
@@ -185,7 +183,6 @@ struct Settings
   bool         stopOnSuccess  = false;
   bool         leanOptReport  = true;
   std::int64_t iterations     = 1;
-
 
   bool languageTranslation() const
   {
@@ -299,26 +296,70 @@ operator<<(std::ostream& os, SourceRange p)
   return os << p.beg() << "-" << p.lim();
 }
 
+using PlaceholderBase = std::tuple<std::size_t, std::string>;
+
+/// encapsulates any text placeholder that gets substituted with
+///   programmatic information (reports, source code).
+struct Placeholder : PlaceholderBase
+{
+  using base = PlaceholderBase;
+  using base::base;
+
+  std::size_t      offsetInString() const { return std::get<0>(*this); }
+  std::string_view token()          const { return std::get<1>(*this); }
+};
+
+
+using PlaceholderMapBase = std::unordered_map<std::string_view, std::string>;
+
+struct PlaceholderMap : PlaceholderMapBase
+{
+  using base = PlaceholderMapBase;
+  using base::base;
+
+  Placeholder next(std::string_view prompt);
+};
+
+Placeholder
+PlaceholderMap::next(std::string_view prompt)
+{
+  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
+  {
+    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
+    {
+      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
+
+      std::cerr << "x " << cand << std::endl;
+
+      if (this->find(cand) != this->end())
+        return Placeholder{pos, cand};
+    }
+  }
+
+  return Placeholder{prompt.size(), ""};
+}
+
+
 
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
   enum AI { gpt4=0, claude=1, ollama=2, openrouter=3, none=4, error=5 };
 
-  bool                     help              = false;
-  bool                     helpConfig        = false;
-  bool                     showVersion       = false;
-  bool                     configCreate      = false;
-  bool                     withDocFields     = false;
-  AI                       configAI          = none;
-  std::string              configModel       = "";
-  std::string              configFileName    = "compgpt.json";
-  std::string              configFrom        = "";
-  std::string              harness           = "";
-  std::filesystem::path    programPath       = "compgpt.bin";
-  SourceRange              kernel            = { SourcePoint::origin(), SourcePoint::eof() };
-  std::string              csvsummary        = "";
-  std::vector<std::string> all;
+  bool                          help              = false;
+  bool                          helpConfig        = false;
+  bool                          showVersion       = false;
+  bool                          configCreate      = false;
+  bool                          withDocFields     = false;
+  AI                            configAI          = none;
+  std::string                   configModel       = "";
+  std::string                   configFileName    = "compgpt.json";
+  std::string                   configFrom        = "";
+  std::filesystem::path         programPath       = "compgpt.bin";
+  SourceRange                   kernel            = { SourcePoint::origin(), SourcePoint::eof() };
+  std::string                   csvsummary        = "";
+  std::vector<std::string_view> all;
+  PlaceholderMap                vars;
 };
 
 void checkExistance(std::string_view filename)
@@ -504,49 +545,6 @@ splitString(const std::string& input, char splitch = '\n')
   return res;
 }
 
-using PlaceholderBase = std::tuple<std::size_t, std::string>;
-
-/// encapsulates any text placeholder that gets substituted with
-///   programmatic information (reports, source code).
-struct Placeholder : PlaceholderBase
-{
-  using base = PlaceholderBase;
-  using base::base;
-
-  std::size_t      offsetInString() const { return std::get<0>(*this); }
-  std::string_view token()          const { return std::get<1>(*this); }
-};
-
-
-
-using PlaceholderMapBase = std::unordered_map<std::string_view, std::string>;
-
-struct PlaceholderMap : PlaceholderMapBase
-{
-  using base = PlaceholderMapBase;
-  using base::base;
-
-  Placeholder next(std::string_view prompt);
-};
-
-Placeholder
-PlaceholderMap::next(std::string_view prompt)
-{
-  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
-  {
-    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
-    {
-      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
-
-      if (this->find(cand) != this->end())
-        return Placeholder{pos, cand};
-    }
-  }
-
-  return Placeholder{prompt.size(), ""};
-}
-
-
 
 /// replaces known placeholders with their text
 std::string
@@ -571,7 +569,7 @@ expandText0(std::string_view prompt, PlaceholderMap m)
 }
 
 std::string
-expandText(std::string_view prompt, const Settings& settings, PlaceholderMap m)
+expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings)
 {
   m["invokeai"]     = settings.invokeai;
   m["compiler"]     = settings.compiler;
@@ -598,6 +596,25 @@ expandText(std::string_view prompt, const Settings& settings, PlaceholderMap m)
      << "\n  \"iterations\":"       << settings.iterations
 */
   return expandText0(prompt, std::move(m));
+}
+
+std::string
+expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings, PlaceholderMap extras)
+{
+  std::cerr << "s: " << m.size() << " " << extras.size()
+            << std::endl;
+
+  for ( PlaceholderMap::value_type el : m )
+    std::cerr << "-" << el.first << ":" << el.second << std::endl;
+
+  for ( PlaceholderMap::value_type ex : extras )
+    m.emplace(ex.first, std::move(ex.second));
+
+  std::cerr << "S: " << m.size()
+            << std::endl;
+
+
+  return expandText(prompt, m, settings);
 }
 
 
@@ -802,16 +819,23 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
 CompilationResult
 compileResult( const Settings& settings,
                const CmdLineArgs& cmdline,
-               std::string newFile,
+               std::string_view newFile,
                SourceRange kernelrng
              )
 {
   trace(std::cerr, "compile: ", newFile, "@", kernelrng, '\n');
 
-  std::vector<std::string> args = cmdline.all;
+  std::vector<std::string> args;
 
-  args.pop_back();
-  args.push_back(newFile);
+  std::transform( cmdline.all.begin(), std::prev(cmdline.all.end()),
+                  std::back_inserter(args),
+                  [](std::string_view vw) -> std::string
+                  {
+                    return std::string(vw);
+                  }
+                );
+
+  args.emplace_back(std::string(newFile));
 
   CompilationResult res = invokeCompiler(settings, kernelrng, args);
 
@@ -926,10 +950,9 @@ std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
 
 /// invokes the test script
 TestResult
-invokeTestScript(const Settings& settings, const std::string& filename, const std::string& harness)
+invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std::string& filename)
 {
   static const std::string prmFileName = "filename";
-  static const std::string prmHarness  = "harness";
 
   if (settings.testScript.empty())
   {
@@ -940,10 +963,9 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
   }
 
   std::string testCall = expandText( settings.testScript,
+                                     vars,
                                      settings,
-                                     { { prmFileName, filename },
-                                       { prmHarness,  harness }
-                                     }
+                                     { {prmFileName, filename} }
                                    );
 
   std::vector<std::string> args;
@@ -986,7 +1008,7 @@ invokeTestScript(const Settings& settings, const std::string& filename, const st
 
 /// loads the specified subsection of a code into a string.
 std::string
-loadCodeQuery(const Settings& settings, const std::string& filename, SourceRange rng)
+loadCodeQuery(const Settings& settings, std::string_view filename, SourceRange rng)
 {
   std::stringstream txt;
 
@@ -997,7 +1019,7 @@ loadCodeQuery(const Settings& settings, const std::string& filename, SourceRange
   txt << CC_MARKER_BEGIN << settings.inputLang
       << "\n";
 
-  std::ifstream     src{filename};
+  std::ifstream     src{std::string(filename)};
   std::string       line;
   std::size_t const begLine = rng.beg().line();
   std::size_t const limLine = rng.lim().line();
@@ -1049,6 +1071,7 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
 
     q["role"]    = "user";
     q["content"] = expandText( settings.firstPrompt,
+                               args.vars,
                                settings,
                                { {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)}
                                , {"report", output}
@@ -1766,7 +1789,26 @@ struct CmdLineProc
     return {beg,lim};
   }
 
-  void operator()(const std::string& arg)
+  void
+  parseUserVar(PlaceholderMap& vars, std::string_view s0)
+  {
+    std::cerr << "parsing ]" << s0 << std::endl;
+
+    auto pos = s0.find('=');
+
+    if (pos == std::string_view::npos)
+    {
+      std::cerr << "invalid variable declaration: " << s0 << " <ignored>"
+                << std::endl;
+      return;
+    }
+
+    std::cerr << "add ]" << s0.substr(0, pos) << " " << s0.substr(pos+1)
+              << std::endl;
+    vars[s0.substr(0, pos)] = s0.substr(pos+1);
+  }
+
+  void operator()(std::string_view arg)
   {
     if (arg.rfind(phelpconfig, 0) != std::string::npos)
       opts.helpConfig = true;
@@ -1791,9 +1833,11 @@ struct CmdLineProc
     else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pharness, 0) != std::string::npos)
-      opts.harness = arg.substr(pharness.size());
+      std::cerr << pharness << " is deprecated and IGNORED. Use --var:harness= instead." << std::endl;
     else if (arg.rfind(pkernel, 0) != std::string::npos)
       opts.kernel = parseSourceRange(arg.substr(pkernel.size()));
+    else if (arg.rfind(pvar, 0) != std::string::npos)
+      parseUserVar(opts.vars, arg.substr(pvar.size()));
     else if (arg.rfind(pcsvsummary, 0) != std::string::npos)
       opts.csvsummary = arg.substr(pcsvsummary.size());
     else
@@ -1816,6 +1860,7 @@ struct CmdLineProc
   static std::string pconfigfrom;
   static std::string pconfig;
   static std::string pharness;
+  static std::string pvar;
   static std::string pkernel;
   static std::string pcsvsummary;
 };
@@ -1832,10 +1877,11 @@ std::string CmdLineProc::pconfigmodel     = "--config:model=";
 std::string CmdLineProc::pconfigfrom      = "--config:from=";
 std::string CmdLineProc::pconfig          = "--config=";
 std::string CmdLineProc::pharness         = "--harness-param=";
+std::string CmdLineProc::pvar             = "--var:";
 std::string CmdLineProc::pkernel          = "--kernel=";
 std::string CmdLineProc::pcsvsummary      = "--csvsummary=";
 
-CmdLineArgs parseArguments(std::vector<std::string> args)
+CmdLineArgs parseArguments(const std::vector<std::string>& args)
 {
   return std::for_each( std::next(args.begin()), args.end(),
                         CmdLineProc{absolutePath(args.at(0))}
@@ -1928,14 +1974,14 @@ qualityText(const std::vector<Revision>& variants)
 Revision
 initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
 {
-  std::string fileName = cmdlnargs.all.back();
+  static constexpr const char* harrnessNotRun = "test harness not run on inital code (language translation)";
+
+  std::string fileName(cmdlnargs.all.back());
 
   if (settings.languageTranslation())
-    return { fileName,
-             TestResult{false, nanValue<long double>(), "test harness not run (language translation)"}
-           };
+    return { fileName, TestResult{false, nanValue<long double>(), harrnessNotRun } };
 
-  return { fileName, invokeTestScript(settings, fileName, cmdlnargs.harness) };
+  return { fileName, invokeTestScript(settings, cmdlnargs.vars, fileName) };
 }
 
 /// prints revision information with specified printer
@@ -1970,7 +2016,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
     if (compres.success())
     {
       variants.emplace_back( newFile,
-                             invokeTestScript(settings, newFile, cmdlnargs.harness)
+                             invokeTestScript(settings, cmdlnargs.vars, newFile)
                            );
 
       if (variants.back().result().success())
@@ -1983,6 +2029,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
         if (!lastIteration)
         {
           std::string prompt = expandText( settings.successPrompt,
+                                           cmdlnargs.vars,
                                            settings,
                                            { {"report", compres.output()}
                                            }
@@ -1999,6 +2046,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
         if (!lastIteration)
         {
           std::string prompt = expandText( settings.testFailPrompt,
+                                           cmdlnargs.vars,
                                            settings,
                                            { {"report", variants.back().result().errors()}
                                            }
@@ -2018,6 +2066,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
       if (!lastIteration)
       {
         std::string prompt = expandText( settings.compFailPrompt,
+                                         cmdlnargs.vars,
                                          settings,
                                          { {"report", compres.output()}
                                          }
@@ -2103,7 +2152,9 @@ int main(int argc, char** argv)
 {
   assert(argc > 0);
 
-  CmdLineArgs cmdlnargs = parseArguments(getCmdlineArgs(argv, argv+argc));
+  // note: cxxargs must survive to allow string_views reference the values.
+  const std::vector<std::string> cxxargs   = getCmdlineArgs(argv, argv+argc);
+  CmdLineArgs                    cmdlnargs = parseArguments(cxxargs);
 
   if (cmdlnargs.showVersion)
   {
