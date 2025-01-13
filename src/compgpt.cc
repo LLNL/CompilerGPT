@@ -50,6 +50,7 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n    --config=jsonfile     config file in json format."
                     "\n                          default: jsonfile=compgpt.json"
                     "\n    --create-config       creates config file and exits."
+                    "\n    --create-doc-config   creates config file with documentation fields and exits."
                     "\n    --config:ai=p         creates config file for a specified AI."
                     "\n                          p in {gpt4,claude,ollama,openrouter}"
                     "\n                          default: p=gpt4"
@@ -77,73 +78,96 @@ const char* usage = "usage: compgpt switches source-file"
                     ;
 
 
-const char* confighelp = "The following configuration parameters can be set in the config file."
-                         "\n"
-                         "\nCompiler and optimization report settings:"
-                         "\n  optcompiler    a string pointing to a compiler"
-                         "\n                 (an empty string runs compgpt without optimization report)"
-                         "\n  optreport      arguments passed to 'optcompiler' to generate an optimization report"
-                         "\n  optcompile     arguments passed to 'optcompiler' to validate compilation"
-                         "\n  leanOptReport  a boolean value indicating if adjacent repetitive lines"
-                         "\n                 should be removed form the optimization report."
-                         "\n"
-                         "\nInteraction with AI"
-                         "\n  invokeai       a string pointing to an executable (script) to call the external AI"
-                         "\n  queryFile      a json file storing the conversation history. The external AI"
-                         "\n                 needs to read the query from this file."
-                         "\n  responseFile   a file [text or json] where the AI stores the query response"
-                         "\n  responseField  a JSON path in the form of [field {'.' field} ] identifying the content."
-                         "\n                 ignored when responseFile is a text file."
-                         "\n  inputLang      language delimiter for the input language. Used to generate"
-                         "\n                 the initial prompt."
-                         "\n  outputLang     language delimiter for the AI response."
-                         "\n"
-                         "\nCode validation and quality scoring:"
-                         "\n  newFileExt     a string for the extension of the generated file."
-                         "\n                 if not set, the original file extension will be used."
-                         "\n                 note: the setting may be useful for language translation tasks"
-                         "\n  testScript     an optional string pointing to an executable that assesses the AI output"
-                         "\n                   CompilerGpt variables in the string are expanded before the test script"
-                         "\n                   is invoked."
-                         "\n                   CompilerGpt variables include: <<harness>>, <<optcompiler>>, <<optcompile>>"
-                         "\n                                                  <<invokeai>>, <<optreport>>, <<filename>>."
-                         "\n                 a non-zero exit value indicates that testing faied."
-                         "\n                 if successful, the last output line should contain a quality score (floating point)."
-                         "\n                   (lower is better)."
-                         "\n                 if the testScript is not set, it is assumed that the generated"
-                         "\n                 code passes the regression tests with a quality score of 0."
-                         "\n"
-                         "\nPrompting:"
-                         "\n  systemText     a string for setting the context/role in the AI communication."
-                         "\n  systemTextFile if set compgpt writes the system text into a file instead of"
-                         "\n                 passing it as first message in the message list."
-                         "\n  roleOfAI       the name of the AI role in the conversation context."
-                         "\n"
-                         "\nPrompt text"
-                         "\n  firstPrompt    the initial prompt."
-                         "\n  successPrompt  follow up prompt."
-                         "\n  compFailPrompt prompt when the AI generated code does not compile."
-                         "\n  testFailPrompt prompt when the AI generated code produces errors with the test harness."
-                         "\n"
-                         "\n  Prompt text can contain variables <<code>> [only with firstPrompt] and <<report>>."
-                         "\n"
-                         "\nIteration control:"
-                         "\n  iterations     integer number specifying the maximum number of iterations."
-                         "\n  stopOnSuccess  boolean value. if true, the program terminates as soon as testScript reports success."
-                         "\n"
-                         "\nNote:"
-                         "\n  A file with default settings can be generated using --create-config."
-                         "\n  The config file only needs entries when a default setting is overridden."
-                         ;
+const char* invokeaiDoc       = "a string pointing to an executable (script) that calls the external AI (<<invokeai>>)";
+const char* compilerDoc       = "a string pointing to a compiler (<<compiler>>)";
+const char* compileflagsDoc   = "compile flags passed to compiler (<<compileflags>>)";
+const char* optreportDoc      = "compiler flags that generate the optimization report";
+const char* leanOptReportDoc  = "a boolean value indicating if adjacent repetitive lines"
+                                " should be removed form the optimization report";
+const char* historyFileDoc    = "a JSON file storing the conversation history <<historyFile>>. invokeai will read the prompt from this file.";
+const char* responseFileDoc   = "a file [.txt or .json] where the AI stores the query response";
+const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal ']'] {'.' field ['[' literal ']']} ]"
+                                " identifying the response in a JSON output file."
+                                " (ignored when responseFile is a text file)";
+const char* testScriptDoc     = "an optional string pointing to an executable that assesses the AI output."
+                                " CompilerGpt variables in the string are expanded before the test script"
+                                " is invoked."
+                                " CompilerGpt variables include: <<harness>>, <<compiler>>,"
+                                " <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
+                                " A non-zero exit value indicates that testing faied."
+                                " If successful, the last output line should contain a quality score"
+                                " (may use floating points). A lower score indicates better results."
+                                " If the testScript is not set, it is assumed that the generated"
+                                " code passes the regression tests with a quality score of 0.";
+const char* newFileExtDoc     = "a string for the extension of the generated file. (if not set, the original file extension will be used.) This setting is mostly useful for language translation tasks.";
+const char* inputLangDoc      = "language delimiter for the input language. Used to delineate <<code>> sections.";
+const char* outputLangDoc     = "language delimiter for the AI response. (if not set defaults to inputLang).";
+const char* systemTextDoc     = "A string setting the context/role in the AI communication.";
+const char* systemTextFileDoc = "If set CompilerGPT writes the system text into the file instead of"
+                                " passing it as first message in the conversation history.";
+const char* roleOfAIDoc       = "The name of the AI role in the conversation history. Typically assistant.";
+const char* firstPromptDoc    = "The initial prompt.";
+const char* successPromptDoc  = "Follow up prompt when the previous iteration returned a successful code.";
+const char* compFailPromptDoc = "Prompt when the AI generated code does not compile";
+const char* testFailPromptDoc = "prompt when the AI generated code produces errors with the test harness";
+const char* stopOnSuccessDoc  = "boolean value. if true, the program terminates as soon as testScript reports success";
+const char* iterationsDoc     = "Integer number specifying the maximum number of iterations.";
+
+
+void printConfigHelp(std::ostream& os)
+{
+  os << "The following configuration parameters can be set in the config file."
+     << "\n"
+     << "\nCompiler and optimization report settings:"
+     << "\n  compiler       " << compilerDoc
+     << "\n  compileflags   " << compileflagsDoc
+     << "\n  optreport      " << optreportDoc
+     << "\n  leanOptReport  " << leanOptReportDoc
+     << "\n"
+     << "\nInteraction with AI"
+     << "\n  invokeai       " << invokeaiDoc
+     << "\n  historyFile    " << historyFileDoc
+     << "\n  responseFile   " << responseFileDoc
+     << "\n  responseField  " << responseFieldDoc
+     << "\n  inputLang      " << inputLangDoc
+     << "\n  outputLang     " << outputLangDoc
+     << "\n"
+     << "\nCode validation and quality scoring:"
+     << "\n  newFileExt     " << newFileExtDoc
+     << "\n  testScript     " << testScriptDoc
+     << "\n"
+     << "\nPrompting:"
+     << "\n  systemText     " << systemTextDoc
+     << "\n  systemTextFile " << systemTextFileDoc
+     << "\n  roleOfAI       " << roleOfAIDoc
+     << "\n"
+     << "\nPrompt text"
+     << "\n  firstPrompt    " << firstPromptDoc
+     << "\n  successPrompt  " << successPromptDoc
+     << "\n  compFailPrompt " << compFailPromptDoc
+     << "\n  testFailPrompt " << testFailPromptDoc
+     << "\n"
+     << "\n  Prompt text can contain variables <<code>> [only with firstPrompt] and <<report>>."
+     << "\n"
+     << "\nIteration control:"
+     << "\n  iterations     " << iterationsDoc
+     << "\n  stopOnSuccess  " << stopOnSuccessDoc
+     << "\n"
+     << "\nNote:"
+     << "\n  A file with default settings can be generated using --create-config and --create-doc-config."
+     << "\n  The config file only needs entries when a default setting is overridden."
+     << std::endl;
+}
+
 
 /// encapsulates all settings that can be configured through a JSON file.
 struct Settings
 {
   std::string  invokeai       = "./scripts/gpt4/exec-gpt-4o.sh";
-  std::string  optcompiler    = "/usr/bin/clang++";
+  std::string  compiler       = "clang++";
+  std::string  compileflags   = "-O3 -march=native -DNDEBUG=1";
   std::string  optreport      = "-Rpass-missed=. -c";
-  std::string  optcompile     = "-O3 -march=native -DNDEBUG=1";
-  std::string  queryFile      = "query.json";
+  std::string  historyFile    = "query.json";
   std::string  responseFile   = "response.txt";
   std::string  responseField  = "";
   std::string  testScript     = "";
@@ -285,6 +309,7 @@ struct CmdLineArgs
   bool                     helpConfig        = false;
   bool                     showVersion       = false;
   bool                     configCreate      = false;
+  bool                     withDocFields     = false;
   AI                       configAI          = none;
   std::string              configModel       = "";
   std::string              configFileName    = "compgpt.json";
@@ -548,14 +573,14 @@ expandText0(std::string_view prompt, PlaceholderMap m)
 std::string
 expandText(std::string_view prompt, const Settings& settings, PlaceholderMap m)
 {
-  m["invokeai"]    = settings.invokeai;
-  m["optcompiler"] = settings.optcompiler;
-  m["optreport"]   = settings.optreport;
-  m["optcompile"]  = settings.optcompile;
+  m["invokeai"]     = settings.invokeai;
+  m["compiler"]     = settings.compiler;
+  m["compileflags"] = settings.compileflags;
+  m["optreport"]    = settings.optreport;
+  m["historyFile"]  = settings.historyFile;
 
 /*
      << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
-     << "\n  \"queryFile\":\""      << settings.queryFile << "\","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
@@ -735,7 +760,7 @@ filterMessageOutput( const Settings& settings,
 CompilationResult
 invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std::string> args)
 {
-  if (settings.optcompiler.size() == 0)
+  if (settings.compiler.size() == 0)
   {
     std::cerr << "No compiler configured. Skipping compile test."
               << std::endl;
@@ -747,16 +772,16 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
   args.pop_back();
 
   splitArgs(settings.optreport, args);
-  splitArgs(settings.optcompile, args);
+  splitArgs(settings.compileflags, args);
   args.push_back(src);
 
-  trace(std::cerr, "compile: ", settings.optcompiler, range(args), '\n');
+  trace(std::cerr, "compile: ", settings.compiler, range(args), '\n');
 
   boost::asio::io_service  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boost::process::child    compilation( settings.optcompiler,
+  boost::process::child    compilation( settings.compiler,
                                         boost::process::args(args),
                                         boost::process::std_in.close(),
                                         boost::process::std_out > outstr,
@@ -1068,9 +1093,9 @@ appendResponse(const Settings& settings, json::value val, std::string response)
 ///   next AI invocation.
 void storeQuery(const Settings& settings, const json::value& query)
 {
-  std::ofstream queryfile{settings.queryFile};
+  std::ofstream historyFile{settings.historyFile};
 
-  queryfile << query << std::endl;
+  historyFile << query << std::endl;
 }
 
 /// parses JSON input from a line.
@@ -1416,7 +1441,7 @@ std::string loadAIResponse(const Settings& settings)
 
 /// queries a string field from a JSON object.
 std::string_view
-loadField(json::object& cnfobj, std::string fld, const std::string& alt)
+loadField(const json::object& cnfobj, std::string fld, const std::string& alt)
 {
   const auto pos = cnfobj.find(fld);
 
@@ -1427,7 +1452,7 @@ loadField(json::object& cnfobj, std::string fld, const std::string& alt)
 }
 
 /// queries a boolean field from a JSON object.
-bool loadField(json::object& cnfobj, std::string fld, bool alt)
+bool loadField(const json::object& cnfobj, std::string fld, bool alt)
 {
   const auto pos = cnfobj.find(fld);
 
@@ -1438,16 +1463,16 @@ bool loadField(json::object& cnfobj, std::string fld, bool alt)
 }
 
 /// queries an int64_t field from a JSON object.
-std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
+std::int64_t loadField(const json::object& cnfobj, std::string fld, std::int64_t alt)
 {
   const auto pos = cnfobj.find(fld);
 
   if (pos != cnfobj.end())
   {
-    if (std::int64_t* ip = pos->value().if_int64())
+    if (const std::int64_t* ip = pos->value().if_int64())
       return *ip;
 
-    if (std::uint64_t* up = pos->value().if_uint64())
+    if (const std::uint64_t* up = pos->value().if_uint64())
     {
       assert(*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()));
       return *up;
@@ -1465,34 +1490,96 @@ std::string replace_nl(std::string s)
   return s;
 }
 
-/// pretty prints settings to JSON format
-void writeSettings(std::ostream& os, const Settings& settings)
+std::string fieldDoc(bool gen, const char* field, const char* doc)
 {
+  if (!gen) return {};
+
+  std::string res = "\n  \"";
+
+  res += field;
+  res += "\":\"";
+  res += doc;
+  res += "\",";
+
+  return res;
+}
+
+/// pretty prints settings to JSON format
+void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& settings)
+{
+  const bool        genDoc = args.withDocFields;
+  const std::string nostring;
+
   // print pretty json by hand, as boost does not pretty print by default.
   // \todo consider using https://www.boost.org/doc/libs/1_80_0/libs/json/doc/html/json/examples.html
+     //~ << "\n  \"optcompiler\":\""    << settings.optcompiler << "\","
+     //~ << "\n  \"optcompile\":\""     << settings.optcompile << "\","
+
   os << "{"
+     << fieldDoc(genDoc, "invokeai-doc", invokeaiDoc)
      << "\n  \"invokeai\":\""       << settings.invokeai << "\","
-     << "\n  \"optcompiler\":\""    << settings.optcompiler << "\","
+     << fieldDoc(genDoc, "compiler-doc", compilerDoc)
+     << "\n  \"compiler\":\""       << settings.compiler << "\","
+     << fieldDoc(genDoc, "compileflags-doc", compileflagsDoc)
+     << "\n  \"compileflags\":\""   << settings.compileflags << "\","
+     << fieldDoc(genDoc, "optreport-doc", optreportDoc)
      << "\n  \"optreport\":\""      << settings.optreport << "\","
-     << "\n  \"optcompile\":\""     << settings.optcompile << "\","
+     << fieldDoc(genDoc, "leanOptReport-doc", leanOptReportDoc)
      << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
-     << "\n  \"queryFile\":\""      << settings.queryFile << "\","
+     << fieldDoc(genDoc, "historyFile-doc", historyFileDoc)
+     << "\n  \"historyFile\":\""    << settings.historyFile << "\","
+     << fieldDoc(genDoc, "responseFile-doc", responseFileDoc)
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
+     << fieldDoc(genDoc, "responseField-doc", responseFieldDoc)
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
+     << fieldDoc(genDoc, "testScript-doc", testScriptDoc)
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
+     << fieldDoc(genDoc, "newFileExt-doc", newFileExtDoc)
      << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
+     << fieldDoc(genDoc, "inputLang-doc", inputLangDoc)
      << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
+     << fieldDoc(genDoc, "outputLang-doc", outputLangDoc)
      << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
+     << fieldDoc(genDoc, "systemText-doc", systemTextDoc)
      << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
-     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
+     << fieldDoc(genDoc, "systemTextFile-doc", systemTextFileDoc)
      << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
+     << fieldDoc(genDoc, "roleOfAI-doc", roleOfAIDoc)
+     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
+     << fieldDoc(genDoc, "firstPrompt-doc", firstPromptDoc)
      << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
+     << fieldDoc(genDoc, "successPrompt-doc", successPromptDoc)
      << "\n  \"successPrompt\":\""  << replace_nl(settings.successPrompt) << "\","
+     << fieldDoc(genDoc, "compFailPrompt-doc", compFailPromptDoc)
      << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\","
+     << fieldDoc(genDoc, "testFailPrompt-doc", testFailPromptDoc)
      << "\n  \"testFailPrompt\":\"" << replace_nl(settings.testFailPrompt) << "\","
+     << fieldDoc(genDoc, "stopOnSuccess-doc", stopOnSuccessDoc)
      << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
+     << fieldDoc(genDoc, "iterations-doc", iterationsDoc)
      << "\n  \"iterations\":"       << settings.iterations
      << "\n}" << std::endl;
+}
+
+void configVersionCheck(const json::object& cnfobj)
+{
+  const std::string X = "x@123";
+  const bool oldConfigFile = (  (loadField(cnfobj, "optcompiler", X) != X)
+                             || (loadField(cnfobj, "optcompile", X) != X)
+                             || (loadField(cnfobj, "queryFile", X) != X)
+                             );
+
+  if (oldConfigFile)
+  {
+    std::cerr << "The config file was created for a previous CompilerGPT version."
+              << "\n  Please rename the following fields"
+              << "\n    optcompiler => compiler"
+              << "\n    optcompile  => compileflags"
+              << "\n    queryFile   => historyFile"
+              << std::endl;
+
+    exit(1);
+  }
 }
 
 /// loads settings from a JSON file \p configFileName
@@ -1519,11 +1606,13 @@ Settings readSettings(const std::string& configFileName)
     json::object& cnfobj = cnf.as_object();
     Settings      config;
 
+    configVersionCheck(cnfobj);
+
     config.invokeai       = loadField(cnfobj, "invokeai",        config.invokeai);
-    config.optcompiler    = loadField(cnfobj, "optcompiler",     config.optcompiler);
+    config.compiler       = loadField(cnfobj, "compiler",        config.compiler);
+    config.compileflags   = loadField(cnfobj, "compileflags",    config.compileflags);
     config.optreport      = loadField(cnfobj, "optreport",       config.optreport);
-    config.optcompile     = loadField(cnfobj, "optcompile",      config.optcompile);
-    config.queryFile      = loadField(cnfobj, "queryFile",       config.queryFile);
+    config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
     config.responseFile   = loadField(cnfobj, "responseFile",    config.responseFile);
     config.responseField  = loadField(cnfobj, "responseField",   config.responseField);
     config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
@@ -1582,7 +1671,7 @@ void createConfigFile(CmdLineArgs args)
   Settings      settings = readSettings(args.configFrom);
   std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, createSettings(settings, args));
+  writeSettings(ofs, args, createSettings(settings, args));
 }
 
 /// Functor processing command line arguments
@@ -1695,6 +1784,8 @@ struct CmdLineProc
       opts.configAI = parseAI(arg.substr(pconfigai.size()));
     else if (arg.rfind(pconfigcreate, 0) != std::string::npos)
       opts.configCreate = true;
+    else if (arg.rfind(pdocconfigcreate, 0) != std::string::npos)
+      opts.configCreate = opts.withDocFields = true;
     else if (arg.rfind(pconfigfrom, 0) != std::string::npos)
       opts.configFrom = arg.substr(pconfigfrom.size());
     else if (arg.rfind(pconfig, 0) != std::string::npos)
@@ -1719,6 +1810,7 @@ struct CmdLineProc
   static std::string phelp3;
   static std::string phelpconfig;
   static std::string pconfigcreate;
+  static std::string pdocconfigcreate;
   static std::string pconfigai;
   static std::string pconfigmodel;
   static std::string pconfigfrom;
@@ -1728,19 +1820,20 @@ struct CmdLineProc
   static std::string pcsvsummary;
 };
 
-std::string CmdLineProc::pversion       = "--version";
-std::string CmdLineProc::phelp          = "--help";
-std::string CmdLineProc::phelp2         = "-help";
-std::string CmdLineProc::phelp3         = "-h";
-std::string CmdLineProc::phelpconfig    = "--help-config";
-std::string CmdLineProc::pconfigcreate  = "--create-config";
-std::string CmdLineProc::pconfigai      = "--config:ai=";
-std::string CmdLineProc::pconfigmodel   = "--config:model=";
-std::string CmdLineProc::pconfigfrom    = "--config:from=";
-std::string CmdLineProc::pconfig        = "--config=";
-std::string CmdLineProc::pharness       = "--harness-param=";
-std::string CmdLineProc::pkernel        = "--kernel=";
-std::string CmdLineProc::pcsvsummary    = "--csvsummary=";
+std::string CmdLineProc::pversion         = "--version";
+std::string CmdLineProc::phelp            = "--help";
+std::string CmdLineProc::phelp2           = "-help";
+std::string CmdLineProc::phelp3           = "-h";
+std::string CmdLineProc::phelpconfig      = "--help-config";
+std::string CmdLineProc::pconfigcreate    = "--create-config";
+std::string CmdLineProc::pdocconfigcreate = "--create-doc-config";
+std::string CmdLineProc::pconfigai        = "--config:ai=";
+std::string CmdLineProc::pconfigmodel     = "--config:model=";
+std::string CmdLineProc::pconfigfrom      = "--config:from=";
+std::string CmdLineProc::pconfig          = "--config=";
+std::string CmdLineProc::pharness         = "--harness-param=";
+std::string CmdLineProc::pkernel          = "--kernel=";
+std::string CmdLineProc::pcsvsummary      = "--csvsummary=";
 
 CmdLineArgs parseArguments(std::vector<std::string> args)
 {
@@ -2028,8 +2121,7 @@ int main(int argc, char** argv)
 
   if (cmdlnargs.helpConfig)
   {
-    std::cout << confighelp << std::endl
-              << std::endl;
+    printConfigHelp(std::cout);
     return 0;
   }
 
@@ -2051,7 +2143,7 @@ int main(int argc, char** argv)
   Settings          settings   = readSettings(cmdlnargs.configFileName);
 
   std::cout << "Settings: ";
-  writeSettings(std::cout, settings);
+  writeSettings(std::cout, cmdlnargs, settings);
   std::cout << std::endl;
 
   std::cout << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
