@@ -329,8 +329,6 @@ PlaceholderMap::next(std::string_view prompt)
     {
       std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
 
-      std::cerr << "x " << cand << std::endl;
-
       if (this->find(cand) != this->end())
         return Placeholder{pos, cand};
     }
@@ -601,18 +599,8 @@ expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings)
 std::string
 expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings, PlaceholderMap extras)
 {
-  std::cerr << "s: " << m.size() << " " << extras.size()
-            << std::endl;
-
-  for ( PlaceholderMap::value_type el : m )
-    std::cerr << "-" << el.first << ":" << el.second << std::endl;
-
   for ( PlaceholderMap::value_type ex : extras )
     m.emplace(ex.first, std::move(ex.second));
-
-  std::cerr << "S: " << m.size()
-            << std::endl;
-
 
   return expandText(prompt, m, settings);
 }

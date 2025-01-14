@@ -1,0 +1,23 @@
+{
+  "invokeai":"/home/pirkelbauer2/git/llmopt/tests/matmul-2/../../scripts/claude/exec-claude.sh claude-3-5-sonnet-20241022",
+  "compiler":"/opt/rh/gcc-toolset-12/root/bin/g++",
+  "compileflags":"-O3 -march=native -DNDEBUG=1",
+  "optreport":"-fopt-info-missed -c",
+  "leanOptReport":true,
+  "historyFile":"query.json",
+  "responseFile":"response.json",
+  "responseField":"content[0].text",
+  "testScript":"./eval.sh <<filename>> <<compiler>> <<compileflags>>",
+  "newFileExt":"",
+  "inputLang":"cpp",
+  "outputLang":"cpp",
+  "systemText":"You are a compiler expert for C++ code optimization. Our goal is to optimize the existing code for better performance.",
+  "systemTextFile":"system.txt",
+  "roleOfAI":"assistant",
+  "firstPrompt":"Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list and optimize the code accordingly.",
+  "successPrompt":"The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.",
+  "compFailPrompt":"This version did not compile. Here are the error messages:\n<<report>>\nTry again.",
+  "testFailPrompt":"This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.",
+  "stopOnSuccess":false,
+  "iterations":6
+}
