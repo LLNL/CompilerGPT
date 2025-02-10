@@ -1,0 +1,23 @@
+{
+  "invokeai":"/home/pirkelbauer2/git/compilergpt/tests/matmul-3/../../scripts/gpt4/exec-openai.sh gpt-4o",
+  "compiler":"/opt/rh/gcc-toolset-12/root/bin/g++",
+  "compileflags":"-O3 -march=native -DNDEBUG=1",
+  "optreport":"-fopt-info-missed -c",
+  "leanOptReport":true,
+  "historyFile":"query.json",
+  "responseFile":"response.json",
+  "responseField":"choices[0].message.content",
+  "testScript":"./eval.sh <<filename>> <<compiler>> <<compileflags>>",
+  "newFileExt":"",
+  "inputLang":"cpp",
+  "outputLang":"cpp",
+  "systemText":"You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.",
+  "systemTextFile":"",
+  "roleOfAI":"assistant",
+  "firstPrompt":"Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: use the prioritized list to improve the input code .",
+  "successPrompt":"The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.",
+  "compFailPrompt":"This version did not compile. Here are the error messages:\n<<report>>\nTry again.",
+  "testFailPrompt":"This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.",
+  "stopOnSuccess":false,
+  "iterations":6
+}
