@@ -342,20 +342,23 @@ PlaceholderMap::next(std::string_view prompt)
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
-  enum AI { gpt4=0, claude=1, ollama=2, openrouter=3, none=4, error=5 };
+  enum AI             { gpt4=0, claude=1, ollama=2, openrouter=3, noai=4, errai=5 };
+  enum CompilerFamily { gcc=0, clang=1, nocomp=2, errcomp=3 };
 
-  bool                          help              = false;
-  bool                          helpConfig        = false;
-  bool                          showVersion       = false;
-  bool                          configCreate      = false;
-  bool                          withDocFields     = false;
-  AI                            configAI          = none;
-  std::string                   configModel       = "";
-  std::string                   configFileName    = "compgpt.json";
-  std::string                   configFrom        = "";
-  std::filesystem::path         programPath       = "compgpt.bin";
-  SourceRange                   kernel            = { SourcePoint::origin(), SourcePoint::eof() };
-  std::string                   csvsummary        = "";
+  bool                          help                 = false;
+  bool                          helpConfig           = false;
+  bool                          showVersion          = false;
+  bool                          configCreate         = false;
+  bool                          withDocFields        = false;
+  AI                            configAI             = noai;
+  CompilerFamily                configCompilerFamily = nocomp;
+  std::string                   configModel          = "";
+  std::string                   configFileName       = "compgpt.json";
+  std::string                   configFrom           = "";
+  std::string                   configCompiler       = "";
+  std::filesystem::path         programPath          = "compgpt.bin";
+  SourceRange                   kernel               = { SourcePoint::origin(), SourcePoint::eof() };
+  std::string                   csvsummary           = "";
   std::vector<std::string_view> all;
   PlaceholderMap                vars;
 };
@@ -392,6 +395,15 @@ struct AISetup : AISetupBase
   const char* systemTextFile() const { return std::get<3>(*this); }
 };
 
+using CompilerSetupBase = std::tuple<const char*>;
+struct CompilerSetup : CompilerSetupBase
+{
+  using base = CompilerSetupBase;
+  using base::base;
+
+  const char* reportFlags() const { return std::get<0>(*this); }
+};
+
 // setup connection for curl scripts
 Settings setupWithCurl(Settings settings, const CmdLineArgs& args, AISetup setup)
 {
@@ -416,11 +428,23 @@ Settings setupWithCurl(Settings settings, const CmdLineArgs& args, AISetup setup
   return settings;
 }
 
+Settings setupCompiler(Settings settings, const CmdLineArgs& args, CompilerSetup setup)
+{
+  settings.compiler     = args.configCompiler;
+  settings.optreport    = setup.reportFlags();
+  settings.compileflags = "-O3 -march=native -DNDEBUG=1";
+
+  return settings;
+}
+
+
+
 
 /// creates default settings for supported AI models.
 Settings createSettings(Settings settings, const CmdLineArgs& args)
 {
-  using ModelSetup = std::unordered_map<CmdLineArgs::AI, AISetup>;
+  using CompilerFamilySetup = std::unordered_map<CmdLineArgs::CompilerFamily, CompilerSetup>;
+  using ModelSetup          = std::unordered_map<CmdLineArgs::AI, AISetup>;
 
   static const ModelSetup modelSetup
       = { { CmdLineArgs::gpt4,       { "scripts/gpt4/exec-openai.sh", // script
@@ -449,10 +473,22 @@ Settings createSettings(Settings settings, const CmdLineArgs& args)
           }
         };
 
-  if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
-    return setupWithCurl(settings, args, pos->second);
+  static const CompilerFamilySetup compilerFamilySetup
+      = { { CmdLineArgs::gcc,       {"-fopt-info-missed -c"} },
+          { CmdLineArgs::clang,     {"-Rpass-missed=. -c"} }
+        };
 
-  throw std::runtime_error{"Unnable to configure unknown model."};
+  if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
+    settings = setupWithCurl(std::move(settings), args, pos->second);
+  else
+    throw std::runtime_error{"Unnable to configure AI model."};
+
+  if (auto pos = compilerFamilySetup.find(args.configCompilerFamily); pos != compilerFamilySetup.end())
+    settings = setupCompiler(std::move(settings), args, pos->second);
+  else
+    throw std::runtime_error{"Unnable to configure compiler."};
+
+  return settings;
 }
 
 }
@@ -1671,7 +1707,7 @@ void createConfigFile(CmdLineArgs args)
     return;
   }
 
-  if (args.configAI == CmdLineArgs::none)
+  if (args.configAI == CmdLineArgs::noai)
   {
     std::cerr << "Unspecified AI component. Using gpt4 as default component."
               << std::endl;
@@ -1695,12 +1731,64 @@ struct CmdLineProc
     opts.programPath = std::move(absPath);
   }
 
+  CmdLineArgs::CompilerFamily
+  determineCompilerFamily(const std::string& comp)
+  {
+    if (comp.empty())
+    {
+      std::cerr << "No compiler specified. Use as in: --config:compiler=/PATH/TO/COMPILER"
+                << std::endl;
+      return CmdLineArgs::nocomp;
+    }
+
+    std::vector<std::string> args{"--version"};
+    boost::asio::io_service  ios;
+    std::future<std::string> outstr;
+    std::future<std::string> errstr;
+    std::future<int>         exitCode;
+    boost::process::child    compilerCheck( comp,
+                                            boost::process::args(args),
+                                            boost::process::std_in.close(),
+                                            boost::process::std_out > outstr,
+                                            boost::process::std_err > errstr,
+                                            boost::process::on_exit = exitCode,
+                                            ios
+                                          );
+
+    ios.run();
+
+    const bool success = exitCode.get() == 0;
+
+    if (!success)
+    {
+      std::cerr << "Automatic compiler check failed: " << comp << " --version"
+                << std::endl;
+      return CmdLineArgs::nocomp;
+    }
+
+    const std::string outtxt = outstr.get();
+    const std::string outcap = boost::to_upper_copy(outtxt);
+
+    if (outcap.find("GCC") != std::string::npos)
+      return CmdLineArgs::gcc;
+
+    if (outcap.find("CLANG") != std::string::npos)
+      return CmdLineArgs::clang;
+
+    std::cerr << "Unable to configure compiler: \n"
+              << outtxt
+              << std::endl;
+
+    return CmdLineArgs::nocomp;
+  }
+
   CmdLineArgs::AI
   parseAI(std::string_view m)
   {
     using ModelNames = std::unordered_map<std::string_view, CmdLineArgs::AI>;
 
     static const ModelNames modelNames = { { "gpt4",       CmdLineArgs::gpt4 },
+                                           { "openai",     CmdLineArgs::gpt4 },
                                            { "claude",     CmdLineArgs::claude },
                                            { "ollama",     CmdLineArgs::ollama },
                                            { "openrouter", CmdLineArgs::openrouter }
@@ -1709,7 +1797,7 @@ struct CmdLineProc
     if (auto pos = modelNames.find(m); pos != modelNames.end())
       return pos->second;
 
-    return CmdLineArgs::error;
+    return CmdLineArgs::errai;
   }
 
   std::tuple<std::size_t, std::string_view>
@@ -1818,10 +1906,13 @@ struct CmdLineProc
       opts.configCreate = opts.withDocFields = true;
     else if (arg.rfind(pconfigfrom, 0) != std::string::npos)
       opts.configFrom = arg.substr(pconfigfrom.size());
+    else if (arg.rfind(pconfigcompiler, 0) != std::string::npos)
+    {
+      opts.configCompiler = arg.substr(pconfigcompiler.size());
+      opts.configCompilerFamily = determineCompilerFamily(opts.configCompiler);
+    }
     else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
-    else if (arg.rfind(pharness, 0) != std::string::npos)
-      std::cerr << pharness << " is deprecated and IGNORED. Use --var:harness= instead." << std::endl;
     else if (arg.rfind(pkernel, 0) != std::string::npos)
       opts.kernel = parseSourceRange(arg.substr(pkernel.size()));
     else if (arg.rfind(pvar, 0) != std::string::npos)
@@ -1846,8 +1937,8 @@ struct CmdLineProc
   static std::string pconfigai;
   static std::string pconfigmodel;
   static std::string pconfigfrom;
+  static std::string pconfigcompiler;
   static std::string pconfig;
-  static std::string pharness;
   static std::string pvar;
   static std::string pkernel;
   static std::string pcsvsummary;
@@ -1863,8 +1954,8 @@ std::string CmdLineProc::pdocconfigcreate = "--create-doc-config";
 std::string CmdLineProc::pconfigai        = "--config:ai=";
 std::string CmdLineProc::pconfigmodel     = "--config:model=";
 std::string CmdLineProc::pconfigfrom      = "--config:from=";
+std::string CmdLineProc::pconfigcompiler  = "--config:compiler=";
 std::string CmdLineProc::pconfig          = "--config=";
-std::string CmdLineProc::pharness         = "--harness-param=";
 std::string CmdLineProc::pvar             = "--var:";
 std::string CmdLineProc::pkernel          = "--kernel=";
 std::string CmdLineProc::pcsvsummary      = "--csvsummary=";
