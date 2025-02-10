@@ -52,20 +52,25 @@ const char* usage = "usage: compgpt switches source-file"
                     "\n    --create-config       creates config file and exits."
                     "\n    --create-doc-config   creates config file with documentation fields and exits."
                     "\n    --config:ai=p         creates config file for a specified AI."
-                    "\n                          p in {gpt4,claude,ollama,openrouter}"
-                    "\n                          default: p=gpt4"
+                    "\n                          p in {openai,claude,ollama,openrouter}"
+                    "\n                          default: p=openai"
                     "\n    --config:model=m      specifies a submodel for AIs (e.g., gpt4o)."
-                    "\n    --config:from=f       specifies another config file to initialize the"
-                    "\n                          the config settings. The AI specific settings will"
-                    "\n                          be overridden according to the specified AI and model."
+                    "\n    --config:compiler=p   specifies a path to a compiler."
+                    "\n                          CompilerGPT will set <<optreport>> and <<compileflags>>"
+                    "\n                          if the compiler can be recognized."
+                    "\n    --config:from=f       specifies another config file f to initialize the"
+                    "\n                          config settings. The AI and compiler settings will"
+                    "\n                          be overridden by the corresponding settings (if provided)."
                     "\n    --kernel=range        chooses a specific code segment for optimization."
                     "\n                          range is specified in terms of line numbers."
                     "\n                          The following are examples of valid options:"
-                    "\n                            0-10    Lines 0-10 (excluding Line 10)."
+                    "\n                            1-10    Lines 1-10 (excluding Line 10)."
+                    "\n                            The range can be accessed using <<kernelstart>>"
+                    "\n                            and <<kernellimit>>."
                     //~ "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
                     //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
                     //~ "\n                                     (up to column 8)."
-                    "\n                          default: the whole input file"
+                    "\n                          default: the entire input file"
                     "\n    --var:n=t             Introduces a variable named n and sets it to t."
                     "\n                          The variable can be accessed using <<n>>."
                     "\n"
@@ -481,12 +486,12 @@ Settings createSettings(Settings settings, const CmdLineArgs& args)
   if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
     settings = setupWithCurl(std::move(settings), args, pos->second);
   else
-    throw std::runtime_error{"Unnable to configure AI model."};
+    trace(std::cerr, "Not (re)configuring AI. (Unknown or unspecified AI)");
 
   if (auto pos = compilerFamilySetup.find(args.configCompilerFamily); pos != compilerFamilySetup.end())
     settings = setupCompiler(std::move(settings), args, pos->second);
   else
-    throw std::runtime_error{"Unnable to configure compiler."};
+    trace(std::cerr, "Not (re)configuring compiler. (Unknown or unspecified compiler)");
 
   return settings;
 }
@@ -602,15 +607,44 @@ expandText0(std::string_view prompt, PlaceholderMap m)
   return txt.str();
 }
 
-std::string
-expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings)
+
+/// Adds extra variables to the map
+/// \{
+PlaceholderMap
+addToMap(PlaceholderMap m, PlaceholderMap extras)
+{
+  for ( PlaceholderMap::value_type ex : extras )
+    m.emplace(ex.first, std::move(ex.second));
+
+  return m;
+}
+
+PlaceholderMap
+addToMap(PlaceholderMap m, SourceRange rng)
+{
+  std::string one  = "1";
+  std::string limit = "end of file";
+
+  if (!rng.entireFile())
+  {
+    one = std::to_string(rng.beg().line());
+    limit = std::to_string(rng.lim().line());
+  }
+
+  m.emplace("kernelstart", one);
+  m.emplace("kernellimit", limit);
+  return m;
+}
+
+
+PlaceholderMap
+addToMap(PlaceholderMap m, const Settings& settings)
 {
   m["invokeai"]     = settings.invokeai;
   m["compiler"]     = settings.compiler;
   m["compileflags"] = settings.compileflags;
   m["optreport"]    = settings.optreport;
   m["historyFile"]  = settings.historyFile;
-
 /*
      << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
@@ -629,16 +663,29 @@ expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings)
      << "\n  \"stopOnSuccess\":"    << as_string(settings.stopOnSuccess) << ","
      << "\n  \"iterations\":"       << settings.iterations
 */
-  return expandText0(prompt, std::move(m));
+
+  return m;
+}
+/// \}
+
+PlaceholderMap makeVariables(PlaceholderMap m)
+{
+  return m;
 }
 
-std::string
-expandText(std::string_view prompt, PlaceholderMap m, const Settings& settings, PlaceholderMap extras)
+template <class Additions, class... MoreAdditions>
+PlaceholderMap makeVariables(PlaceholderMap m, Additions&& args, MoreAdditions&&... more)
 {
-  for ( PlaceholderMap::value_type ex : extras )
-    m.emplace(ex.first, std::move(ex.second));
+  return makeVariables( addToMap(std::move(m), std::forward<Additions>(args)),
+                        std::forward<MoreAdditions>(more)...
+                      );
+}
 
-  return expandText(prompt, m, settings);
+template <class... Additions>
+std::string
+expandText(std::string_view prompt, PlaceholderMap m, Additions... extras)
+{
+  return expandText0(prompt, makeVariables(std::move(m), std::forward<Additions>(extras)...));
 }
 
 
@@ -988,8 +1035,8 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
 
   std::string testCall = expandText( settings.testScript,
                                      vars,
-                                     settings,
-                                     { {prmFileName, filename} }
+                                     std::ref(settings),
+                                     PlaceholderMap{ {prmFileName, filename} }
                                    );
 
   std::vector<std::string> args;
@@ -1091,15 +1138,17 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   }
 
   {
-    json::object q;
+    json::object q ;
+    PlaceholderMap extras{ {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)},
+                           {"report", output}
+                         };
 
     q["role"]    = "user";
     q["content"] = expandText( settings.firstPrompt,
                                args.vars,
-                               settings,
-                               { {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)}
-                               , {"report", output}
-                               }
+                               args.kernel,
+                               std::ref(settings),
+                               std::move(extras)
                              );
 
     res.emplace_back(std::move(q));
@@ -2107,12 +2156,13 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
         if (!lastIteration)
         {
-          std::string prompt = expandText( settings.successPrompt,
-                                           cmdlnargs.vars,
-                                           settings,
-                                           { {"report", compres.output()}
-                                           }
-                                         );
+          PlaceholderMap extras{ {"report", compres.output()} };
+          std::string    prompt = expandText( settings.successPrompt,
+                                              cmdlnargs.vars,
+                                              kernelrange,
+                                              std::ref(settings),
+                                              std::move(extras)
+                                            );
 
           // \todo add quality assessment to prompt
           query = appendPrompt(std::move(query), std::move(prompt));
@@ -2124,12 +2174,13 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
         if (!lastIteration)
         {
-          std::string prompt = expandText( settings.testFailPrompt,
-                                           cmdlnargs.vars,
-                                           settings,
-                                           { {"report", variants.back().result().errors()}
-                                           }
-                                         );
+          PlaceholderMap extras{ {"report", variants.back().result().errors()} };
+          std::string    prompt = expandText( settings.testFailPrompt,
+                                              cmdlnargs.vars,
+                                              kernelrange,
+                                              std::ref(settings),
+                                              std::move(extras)
+                                            );
 
           query = appendPrompt(std::move(query), std::move(prompt));
         }
@@ -2144,11 +2195,12 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
       if (!lastIteration)
       {
+        PlaceholderMap extras{ {"report", compres.output()} };
         std::string prompt = expandText( settings.compFailPrompt,
                                          cmdlnargs.vars,
-                                         settings,
-                                         { {"report", compres.output()}
-                                         }
+                                         kernelrange,
+                                         std::ref(settings),
+                                         std::move(extras)
                                        );
 
         query = appendPrompt(std::move(query), std::move(prompt));
