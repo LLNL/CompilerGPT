@@ -40,50 +40,51 @@ const char* synopsis = "compgpt: compiler driven code optimizations through LLMs
                        "\n               bugs and performance using a specified test"
                        "\n               harness.";
 
-const char* usage = "usage: compgpt switches source-file"
-                    "\n  switches:"
-                    "\n    --version             displays version information and exits."
-                    "\n    -h"
-                    "\n    -help"
-                    "\n    --help                displays this help message and exits."
-                    "\n    --help-config         prints config file documentation and exits."
-                    "\n    --config=jsonfile     config file in json format."
-                    "\n                          default: jsonfile=compgpt.json"
-                    "\n    --create-config       creates config file and exits."
-                    "\n    --create-doc-config   creates config file with documentation fields and exits."
-                    "\n    --config:ai=p         creates config file for a specified AI."
-                    "\n                          p in {openai,claude,ollama,openrouter}"
-                    "\n                          default: p=openai"
-                    "\n    --config:model=m      specifies a submodel for AIs (e.g., gpt-4o)."
-                    "\n    --config:compiler=p   specifies a path to a compiler."
-                    "\n                          CompilerGPT will set <<optreport>> and <<compileflags>>"
-                    "\n                          if the compiler can be recognized."
-                    "\n    --config:from=f       specifies another config file f to initialize the"
-                    "\n                          config settings. The AI and compiler settings will"
-                    "\n                          be overridden by the corresponding settings (if provided)."
-                    "\n    --kernel=range        chooses a specific code segment for optimization."
-                    "\n                          range is specified in terms of line numbers."
-                    "\n                          The following are examples of valid options:"
-                    "\n                            1-10    Lines 1-10 (excluding Line 10)."
-                    "\n                            The range can be accessed using <<kernelstart>>"
-                    "\n                            and <<kernellimit>>."
-                    //~ "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
-                    //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
-                    //~ "\n                                     (up to column 8)."
-                    "\n                          default: the entire input file"
-                    "\n    --var:n=t             Introduces a variable named n and sets it to t."
-                    "\n                          The variable can be accessed using <<n>>."
-                    "\n"
-                    "\n  TestScript: success or failure is returned through the exit status"
-                    "\n              a numeric quality score is returned on the last"
-                    "\n              non-empty line on stdout."
-                    "\n              The lower the quality score the better (e.g., runtime)."
-                    ;
+const char* usage    = "usage: compgpt switches source-file"
+                       "\n  switches:"
+                       "\n    --version             displays version information and exits."
+                       "\n    -h"
+                       "\n    -help"
+                       "\n    --help                displays this help message and exits."
+                       "\n    --help-config         prints config file documentation and exits."
+                       "\n    --config=jsonfile     config file in json format."
+                       "\n                          default: jsonfile=compgpt.json"
+                       "\n    --create-config       creates config file and exits."
+                       "\n    --create-doc-config   creates config file with documentation fields and exits."
+                       "\n    --config:ai=p         creates config file for a specified AI."
+                       "\n                          p in {openai,claude,ollama,openrouter}"
+                       "\n                          default: p=openai"
+                       "\n    --config:model=m      specifies a submodel for AIs (e.g., gpt-4o)."
+                       "\n    --config:compiler=p   specifies a path to a compiler."
+                       "\n                          CompilerGPT will set <<optreport>>, <<compileflags>>,"
+                       "\n                          and <<compilerfamily>> if the compiler can be recognized."
+                       "\n    --config:from=f       specifies another config file f to initialize the"
+                       "\n                          config settings. The AI and compiler settings will"
+                       "\n                          be overridden by the corresponding settings (if provided)."
+                       "\n    --kernel=range        chooses a specific code segment for optimization."
+                       "\n                          range is specified in terms of line numbers."
+                       "\n                          The following are examples of valid options:"
+                       "\n                            1-10    Lines 1-10 (excluding Line 10)."
+                       "\n                            The range can be accessed using <<kernelstart>>"
+                       "\n                            and <<kernellimit>>."
+                       //~ "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
+                       //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
+                       //~ "\n                                     (up to column 8)."
+                       "\n                          default: the entire input file"
+                       "\n    --var:n=t             Introduces a variable named n and sets it to t."
+                       "\n                          The variable can be accessed using <<n>>."
+                       "\n"
+                       "\n  TestScript: success or failure is returned through the exit status"
+                       "\n              a numeric quality score is returned on the last non-empty line on stdout."
+                       "\n              The lower the quality score the better (e.g., runtime)."
+                       "\n              The score is available through variables <<score>> and <<scoreint>>."
+                       ;
 
 
 const char* invokeaiDoc       = "a string pointing to an executable (script) that calls the external AI (<<invokeai>>)";
 const char* compilerDoc       = "a string pointing to a compiler (<<compiler>>)";
 const char* compileflagsDoc   = "compile flags passed to compiler (<<compileflags>>)";
+const char* compilerfamilyDoc = "a short name for the compiler (<<compilerfamily>>)";
 const char* optreportDoc      = "compiler flags that generate the optimization report";
 const char* leanOptReportDoc  = "a boolean value indicating if adjacent repetitive lines"
                                 " should be removed form the optimization report";
@@ -95,7 +96,7 @@ const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal 
 const char* testScriptDoc     = "an optional string pointing to an executable that assesses the AI output."
                                 " CompilerGpt variables in the string are expanded before the test script"
                                 " is invoked."
-                                " CompilerGpt variables include: <<compiler>>,"
+                                " CompilerGpt variables include: <<compiler>>, <<compilerfamily>>"
                                 " <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
                                 " A non-zero exit value indicates that testing faied."
                                 " If successful, the last output line should contain a quality score"
@@ -124,6 +125,7 @@ void printConfigHelp(std::ostream& os)
      << "\nCompiler and optimization report settings:"
      << "\n  compiler       " << compilerDoc
      << "\n  compileflags   " << compileflagsDoc
+     << "\n  compilerfamily " << compilerfamilyDoc
      << "\n  optreport      " << optreportDoc
      << "\n  leanOptReport  " << leanOptReportDoc
      << "\n"
@@ -167,7 +169,8 @@ void printConfigHelp(std::ostream& os)
 struct Settings
 {
   std::string  invokeai       = "/path/to/ai/invocation";
-  std::string  compiler       = "clang++";
+  std::string  compiler       = "clang";
+  std::string  compilerfamily = "clang";
   std::string  compileflags   = "-O3 -march=native -DNDEBUG=1";
   std::string  optreport      = "-Rpass-missed=. -c";
   std::string  historyFile    = "query.json";
@@ -400,13 +403,14 @@ struct AISetup : AISetupBase
   const char* systemTextFile() const { return std::get<3>(*this); }
 };
 
-using CompilerSetupBase = std::tuple<const char*>;
+using CompilerSetupBase = std::tuple<const char*, const char*>;
 struct CompilerSetup : CompilerSetupBase
 {
   using base = CompilerSetupBase;
   using base::base;
 
-  const char* reportFlags() const { return std::get<0>(*this); }
+  const char* reportFlags()    const { return std::get<0>(*this); }
+  const char* compilerFamily() const { return std::get<1>(*this); }
 };
 
 // setup connection for curl scripts
@@ -435,9 +439,10 @@ Settings setupWithCurl(Settings settings, const CmdLineArgs& args, AISetup setup
 
 Settings setupCompiler(Settings settings, const CmdLineArgs& args, CompilerSetup setup)
 {
-  settings.compiler     = args.configCompiler;
-  settings.optreport    = setup.reportFlags();
-  settings.compileflags = "-O3 -march=native -DNDEBUG=1";
+  settings.compiler       = args.configCompiler;
+  settings.optreport      = setup.reportFlags();
+  settings.compileflags   = "-O3 -march=native -DNDEBUG=1";
+  settings.compilerfamily = setup.compilerFamily();
 
   return settings;
 }
@@ -479,8 +484,8 @@ Settings createSettings(Settings settings, const CmdLineArgs& args)
         };
 
   static const CompilerFamilySetup compilerFamilySetup
-      = { { CmdLineArgs::gcc,       {"-fopt-info-missed -c"} },
-          { CmdLineArgs::clang,     {"-Rpass-missed=. -c"} }
+      = { { CmdLineArgs::gcc,       {"-fopt-info-missed -c", "gcc"} },
+          { CmdLineArgs::clang,     {"-Rpass-missed=. -c",   "clang"} }
         };
 
   if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
@@ -640,11 +645,12 @@ addToMap(PlaceholderMap m, SourceRange rng)
 PlaceholderMap
 addToMap(PlaceholderMap m, const Settings& settings)
 {
-  m["invokeai"]     = settings.invokeai;
-  m["compiler"]     = settings.compiler;
-  m["compileflags"] = settings.compileflags;
-  m["optreport"]    = settings.optreport;
-  m["historyFile"]  = settings.historyFile;
+  m["invokeai"]       = settings.invokeai;
+  m["compiler"]       = settings.compiler;
+  m["compilerfamily"] = settings.compilerfamily;
+  m["compileflags"]   = settings.compileflags;
+  m["optreport"]      = settings.optreport;
+  m["historyFile"]    = settings.historyFile;
 /*
      << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
@@ -1017,6 +1023,50 @@ std::ostream& operator<<(std::ostream& os, const TestResultPrinter& el)
   return os << as_string(el.obj.success(), true) << el.sep << el.obj.score();
 }
 
+using RevisionBase = std::tuple<std::string, TestResult>;
+
+struct Revision : RevisionBase
+{
+  using base = RevisionBase;
+  using base::base;
+
+  const std::string& fileName() const { return std::get<0>(*this); }
+  const TestResult&  result()   const { return std::get<1>(*this); }
+};
+
+/// prints Revision objects in "result" format
+struct ResultPrinter
+{
+  const Revision& obj;
+};
+
+std::ostream& operator<<(std::ostream& os, const ResultPrinter& el)
+{
+  constexpr std::size_t filenamelen = 20;
+  constexpr std::size_t prefix      = 4;
+  constexpr std::size_t suffix      = filenamelen - prefix - 1;
+
+  std::string_view vw = el.obj.fileName();
+
+  if (vw.size() > filenamelen)
+    os << vw.substr(0, prefix) << "*" << vw.substr(vw.size() - suffix);
+  else
+    os << vw << std::setw(filenamelen - vw.size()) << "";
+
+  return os << ": " << TestResultPrinter{ el.obj.result() };
+}
+
+/// prints Revision objects in CSV format
+struct CsvResultPrinter
+{
+  const Revision& obj;
+};
+
+std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
+{
+  return os << el.obj.fileName() << "," << TestResultPrinter{ el.obj.result(), "," };
+}
+
 
 
 /// invokes the test script
@@ -1113,7 +1163,7 @@ loadCodeQuery(const Settings& settings, std::string_view filename, SourceRange r
 
 /// generates a conversation history containing the first prompt.
 json::value
-initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output)
+initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output, const Revision& rev)
 {
   // do not generate a prompt in this case
   if (settings.iterations == 0)
@@ -1138,9 +1188,13 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   }
 
   {
-    json::object q ;
+    json::object   q;
+    long double    score = rev.result().score();
+    std::int64_t   iscore = score;
     PlaceholderMap extras{ {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)},
-                           {"report", output}
+                           {"report", output},
+                           {"score",    std::to_string(score)},
+                           {"scoreint", std::to_string(iscore)}
                          };
 
     q["role"]    = "user";
@@ -1618,6 +1672,8 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n  \"compiler\":\""       << settings.compiler << "\","
      << fieldDoc(genDoc, "compileflags-doc", compileflagsDoc)
      << "\n  \"compileflags\":\""   << settings.compileflags << "\","
+     << fieldDoc(genDoc, "compilerfamily-doc", compileflagsDoc)
+     << "\n  \"compilerfamily\":\"" << settings.compilerfamily << "\","
      << fieldDoc(genDoc, "optreport-doc", optreportDoc)
      << "\n  \"optreport\":\""      << settings.optreport << "\","
      << fieldDoc(genDoc, "leanOptReport-doc", leanOptReportDoc)
@@ -1707,6 +1763,7 @@ Settings readSettings(const std::string& configFileName)
     config.invokeai       = loadField(cnfobj, "invokeai",        config.invokeai);
     config.compiler       = loadField(cnfobj, "compiler",        config.compiler);
     config.compileflags   = loadField(cnfobj, "compileflags",    config.compileflags);
+    config.compilerfamily = loadField(cnfobj, "compilerfamily",  config.compilerfamily);
     config.optreport      = loadField(cnfobj, "optreport",       config.optreport);
     config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
     config.responseFile   = loadField(cnfobj, "responseFile",    config.responseFile);
@@ -2016,49 +2073,6 @@ CmdLineArgs parseArguments(const std::vector<std::string>& args)
                       );
 }
 
-using RevisionBase = std::tuple<std::string, TestResult>;
-
-struct Revision : RevisionBase
-{
-  using base = RevisionBase;
-  using base::base;
-
-  const std::string& fileName() const { return std::get<0>(*this); }
-  const TestResult&  result()   const { return std::get<1>(*this); }
-};
-
-/// prints Revision objects in "result" format
-struct ResultPrinter
-{
-  const Revision& obj;
-};
-
-std::ostream& operator<<(std::ostream& os, const ResultPrinter& el)
-{
-  constexpr std::size_t filenamelen = 20;
-  constexpr std::size_t prefix      = 4;
-  constexpr std::size_t suffix      = filenamelen - prefix - 1;
-
-  std::string_view vw = el.obj.fileName();
-
-  if (vw.size() > filenamelen)
-    os << vw.substr(0, prefix) << "*" << vw.substr(vw.size() - suffix);
-  else
-    os << vw << std::setw(filenamelen - vw.size()) << "";
-
-  return os << ": " << TestResultPrinter{ el.obj.result() };
-}
-
-/// prints Revision objects in CSV format
-struct CsvResultPrinter
-{
-  const Revision& obj;
-};
-
-std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
-{
-  return os << el.obj.fileName() << "," << TestResultPrinter{ el.obj.result(), "," };
-}
 
 /// generates a quality description
 /// (not used for prompting currently)
@@ -2156,7 +2170,12 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
         if (!lastIteration)
         {
-          PlaceholderMap extras{ {"report", compres.output()} };
+          long double    score = variants.back().result().score();
+          std::int64_t   iscore = score;
+          PlaceholderMap extras{ {"report",   compres.output()},
+                                 {"score",    std::to_string(score)},
+                                 {"scoreint", std::to_string(iscore)}
+                               };
           std::string    prompt = expandText( settings.successPrompt,
                                               cmdlnargs.vars,
                                               kernelrange,
@@ -2174,7 +2193,10 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
         if (!lastIteration)
         {
-          PlaceholderMap extras{ {"report", variants.back().result().errors()} };
+          PlaceholderMap extras{ {"report",   variants.back().result().errors()},
+                                 {"score",    "NaN"},
+                                 {"scoreint", "regression tests failed"}
+                               };
           std::string    prompt = expandText( settings.testFailPrompt,
                                               cmdlnargs.vars,
                                               kernelrange,
@@ -2195,7 +2217,10 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
       if (!lastIteration)
       {
-        PlaceholderMap extras{ {"report", compres.output()} };
+        PlaceholderMap extras{ {"report", compres.output()},
+                               {"score",    "NaN"},
+                               {"scoreint", "compilation failed"}
+                             };
         std::string prompt = expandText( settings.compFailPrompt,
                                          cmdlnargs.vars,
                                          kernelrange,
@@ -2246,7 +2271,11 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings)
   }
 
   std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs) };
-  json::value           query    = initialPrompt( settings, cmdlnargs, std::move(compres.output()) );
+  json::value           query    = initialPrompt( settings,
+                                                  cmdlnargs,
+                                                  std::move(compres.output()),
+                                                  variants.back()
+                                                );
 
   try
   {
