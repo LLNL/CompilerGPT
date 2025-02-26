@@ -31,14 +31,14 @@ const std::string CC_MARKER_LIMIT = "```";
 namespace
 {
 
-const char* synopsis = "compgpt: compiler driven code optimizations through LLMs"
-                       "\n  description: feeds clang optimization report of a kernel to"
-                       "\n               an LLM and asks it to optimize the source code"
-                       "\n               The rewritten part is extracted from the LLM"
-                       "\n               and stored in a file."
-                       "\n               The file is compiled and checked for software"
-                       "\n               bugs and performance using a specified test"
-                       "\n               harness.";
+const char* synopsis = "compgpt: driver for code optimizations through LLMs"
+                       "\n  description: driver feeds a compiler optimization report of a kernel"
+                       "\n               to an LLM and prompts it to optimize the source code."
+                       "\n               The rewritten part is extracted from the LLM and"
+                       "\n               stored in a file."
+                       "\n               The file is compiled and checked for software bugs"
+                       "\n               and performance using a user-specified test harness."
+                       ;
 
 const char* usage    = "usage: compgpt switches source-file"
                        "\n  switches:"
@@ -47,6 +47,7 @@ const char* usage    = "usage: compgpt switches source-file"
                        "\n    -help"
                        "\n    --help                displays this help message and exits."
                        "\n    --help-config         prints config file documentation and exits."
+                       "\n    --help-variables      prints information about recognized prompt variables."
                        "\n    --config=jsonfile     config file in json format."
                        "\n                          default: jsonfile=compgpt.json"
                        "\n    --create-config       creates config file and exits."
@@ -103,6 +104,7 @@ const char* testScriptDoc     = "an optional string pointing to an executable th
                                 " (may use floating points). A lower score indicates better results."
                                 " If the testScript is not set, it is assumed that the generated"
                                 " code passes the regression tests with a quality score of 0.";
+const char* testRunsDoc       = "The evaluation harness is run testRuns times and accumulates the score over all runs.";
 const char* newFileExtDoc     = "a string for the extension of the generated file. (if not set, the original file extension will be used.) This setting is mostly useful for language translation tasks.";
 const char* inputLangDoc      = "language delimiter for the input language. Used to delineate <<code>> sections.";
 const char* outputLangDoc     = "language delimiter for the AI response. (if not set defaults to inputLang).";
@@ -116,6 +118,33 @@ const char* compFailPromptDoc = "Prompt when the AI generated code does not comp
 const char* testFailPromptDoc = "prompt when the AI generated code produces errors with the test harness";
 const char* stopOnSuccessDoc  = "boolean value. if true, the program terminates as soon as testScript reports success";
 const char* iterationsDoc     = "Integer number specifying the maximum number of iterations.";
+
+void printVariablesHelp(std::ostream& os)
+{
+  os << "The following configuration parameters can be used in prompts and config files."
+     << "\n"
+     << "\n  Commandline arguments:"
+     << "\n    kernelstart     first line of the source code as specified by --kernel"
+     << "\n                    w/o --kernel kernelstart is: '1'"
+     << "\n    kernellimit     one past the last line of the source code as specified by --kernel"
+     << "\n                    w/o --kernel kernellimit is: 'end of file'"
+     << "\n"
+     << "\n  Configuration settings:"
+     << "\n    invokeai        a path to an external program controlling the AI interaction"
+     << "\n    compiler        a path to a compiler"
+     << "\n    compilerfamily  the compiler family (i.e., gcc, clang)."
+     << "\n    compileflags    the compile flags"
+     << "\n    optreport       the optimization report flags"
+     << "\n    historyFile     the file containing the conversation history"
+     << "\n"
+     << "\n  CompilerGPT generated:"
+     << "\n    filename        the latest file (either initial file, or extracted from response)"
+     << "\n    code            the code (segment) passed to the AI"
+     << "\n    report          the optimization report, log with regression test output or errors/warnings"
+     << "\n    score           the score as reported by the evaluation as floating point value"
+     << "\n    scoreint        the score as reported by the evaluation as integer value (truncated score)"
+     << std::endl;
+}
 
 
 void printConfigHelp(std::ostream& os)
@@ -140,6 +169,7 @@ void printConfigHelp(std::ostream& os)
      << "\nCode validation and quality scoring:"
      << "\n  newFileExt     " << newFileExtDoc
      << "\n  testScript     " << testScriptDoc
+     << "\n  testRuns       " << testRunsDoc
      << "\n"
      << "\nPrompting:"
      << "\n  systemText     " << systemTextDoc
@@ -177,6 +207,7 @@ struct Settings
   std::string  responseFile   = "response.txt";
   std::string  responseField  = "";
   std::string  testScript     = "";
+  std::int64_t testRuns       = 1;
   std::string  newFileExt     = "";
   std::string  inputLang      = "cpp";
   std::string  outputLang     = "cpp";  // same as input language if not specified
@@ -355,6 +386,7 @@ struct CmdLineArgs
 
   bool                          help                 = false;
   bool                          helpConfig           = false;
+  bool                          helpVariables        = false;
   bool                          showVersion          = false;
   bool                          configCreate         = false;
   bool                          withDocFields        = false;
@@ -641,16 +673,15 @@ addToMap(PlaceholderMap m, SourceRange rng)
   return m;
 }
 
-
 PlaceholderMap
 addToMap(PlaceholderMap m, const Settings& settings)
 {
-  m["invokeai"]       = settings.invokeai;
-  m["compiler"]       = settings.compiler;
-  m["compilerfamily"] = settings.compilerfamily;
-  m["compileflags"]   = settings.compileflags;
-  m["optreport"]      = settings.optreport;
-  m["historyFile"]    = settings.historyFile;
+  m.emplace("invokeai",       settings.invokeai);
+  m.emplace("compiler",       settings.compiler);
+  m.emplace("compilerfamily", settings.compilerfamily);
+  m.emplace("compileflags",   settings.compileflags);
+  m.emplace("optreport",      settings.optreport);
+  m.emplace("historyFile",    settings.historyFile);
 /*
      << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
@@ -714,20 +745,60 @@ struct Diagnostic : DiagnosticBase
   std::vector<std::string>& message()  { return std::get<2>(*this); }
 };
 
-bool equalDiagnostic(const Diagnostic& lhs, const Diagnostic& rhs)
+struct EqualDiagnostic
 {
-  if (  lhs.file() != rhs.file()
-     || lhs.location() != rhs.location()
-     )
-    return false;
+  bool operator()(const Diagnostic& lhs, const Diagnostic& rhs) const
+  {
+    if (  lhs.file() != rhs.file()
+       || lhs.location() != rhs.location()
+       )
+      return false;
 
-  const std::vector<std::string>& lhsmsg = lhs.message();
-  const std::vector<std::string>& rhsmsg = rhs.message();
+    const std::vector<std::string>& lhsmsg = lhs.message();
+    const std::vector<std::string>& rhsmsg = rhs.message();
 
-  return std::equal( lhsmsg.begin(), lhsmsg.end(),
-                     rhsmsg.begin(), rhsmsg.end()
-                   );
-}
+    return std::equal( lhsmsg.begin(), lhsmsg.end(),
+                       rhsmsg.begin(), rhsmsg.end()
+                     );
+  }
+};
+
+struct LessThanDiagnostic
+{
+  bool operator()(const Diagnostic& lhs, const Diagnostic& rhs) const
+  {
+    if (lhs.file() < rhs.file())
+      return true;
+
+    if (lhs.file() > rhs.file())
+      return false;
+
+    if (lhs.location() < rhs.location())
+      return true;
+
+    if (lhs.location() > rhs.location())
+      return false;
+
+    const std::vector<std::string>& lhsmsg = lhs.message();
+    const std::vector<std::string>& rhsmsg = rhs.message();
+
+    auto res = std::mismatch( lhsmsg.begin(), lhsmsg.end(),
+                              rhsmsg.begin(), rhsmsg.end()
+                            );
+
+    if ((res.first == lhsmsg.end()) && (res.second != rhsmsg.end()))
+      return true;
+
+    if ((res.first != lhsmsg.end()) && (res.second == rhsmsg.end()))
+      return false;
+
+    if ((res.first == lhsmsg.end()) && (res.second == rhsmsg.end()))
+      return false;
+
+    return *res.first < *res.second;
+  }
+};
+
 
 /// uses a regex to find a file location within a string \p s.
 std::tuple<std::string, SourcePoint>
@@ -822,13 +893,14 @@ filterMessageOutput( const Settings& settings,
                     );
            };
 
-  std::vector<Diagnostic>  withinRange;
   auto beg = diagnosed.begin();
   auto pos = std::remove_if( beg, diagnosed.end(), outsideSourceRange );
 
   if (settings.leanOptReport)
   {
-    pos = std::unique(beg, pos, equalDiagnostic );
+
+    std::sort(beg, pos, LessThanDiagnostic{});
+    pos = std::unique(beg, pos, EqualDiagnostic{});
 
     std::for_each(beg, pos, trimOptReport);
   }
@@ -1068,7 +1140,6 @@ std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
 }
 
 
-
 /// invokes the test script
 TestResult
 invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std::string& filename)
@@ -1077,7 +1148,15 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
 
   if (settings.testScript.empty())
   {
-    std::cerr << "No test-script configured. Not running tests."
+    std::cerr << "Settings.testScript not configured. Not running tests."
+              << std::endl;
+
+    return { true, 0.0, "" };
+  }
+
+  if (settings.testRuns == 0)
+  {
+    std::cerr << "Settings.testRuns is 0. Not running tests."
               << std::endl;
 
     return { true, 0.0, "" };
@@ -1089,41 +1168,51 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
                                      PlaceholderMap{ {prmFileName, filename} }
                                    );
 
+  long double              totalScore = 0.0;
   std::vector<std::string> args;
 
   splitArgs(testCall, args);
 
-  std::string testHarness = args.front();
+  std::string              testHarness = args.front();
 
   args.erase(args.begin());
 
-  trace(std::cerr, "test: ", testHarness, " ", range(args), '\n');
+  for (std::int64_t i = 0; i < settings.testRuns; ++i)
+  {
+    trace(std::cerr, "test: ", testHarness, " ", range(args), '\n');
 
-  boost::asio::io_service  ios;
-  std::future<std::string> outstr;
-  std::future<std::string> errstr;
-  std::future<int>         exitCode;
-  boost::process::child    tst( testHarness,
-                                boost::process::args(args),
-                                boost::process::std_in.close(),
-                                boost::process::std_out > outstr,
-                                boost::process::std_err > errstr,
-                                boost::process::on_exit = exitCode,
-                                ios
-                              );
+    boost::asio::io_service  ios;
+    std::future<std::string> outstr;
+    std::future<std::string> errstr;
+    std::future<int>         exitCode;
+    boost::process::child    tst( testHarness,
+                                  boost::process::args(args),
+                                  boost::process::std_in.close(),
+                                  boost::process::std_out > outstr,
+                                  boost::process::std_err > errstr,
+                                  boost::process::on_exit = exitCode,
+                                  ios
+                                );
 
-  ios.run();
+    ios.run();
 
-  const bool success = exitCode.get() == 0;
+    const bool success = exitCode.get() == 0;
 
-  std::string outs = outstr.get();
-  std::string errs = errstr.get();
+    std::string outs = outstr.get();
+    std::string errs = errstr.get();
 
-  std::cout << outs << std::endl;
-  std::cerr << errs << std::endl;
+    std::cout << outs << std::endl;
+    std::cerr << errs << std::endl;
 
-  trace(std::cerr, "success(test): ", success, '\n');
-  return { success, testScore(success, outs), std::move(errs) };
+    trace(std::cerr, "success(test): ", success, '\n');
+
+    if (!success)
+      return { false, nanValue<long double>(), std::move(errs) };
+
+    totalScore += testScore(success, outs);
+  }
+
+  return { true, totalScore, "" };
 }
 
 
@@ -1132,10 +1221,6 @@ std::string
 loadCodeQuery(const Settings& settings, std::string_view filename, SourceRange rng)
 {
   std::stringstream txt;
-
-  if (!rng.entireFile())
-    txt << "The code's first line number is: " << rng.beg().line()
-        << "\n";
 
   txt << CC_MARKER_BEGIN << settings.inputLang
       << "\n";
@@ -1686,6 +1771,8 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
      << fieldDoc(genDoc, "testScript-doc", testScriptDoc)
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
+     << fieldDoc(genDoc, "testRuns-doc", testRunsDoc)
+     << "\n  \"testRuns\":"         << settings.testRuns << ","
      << fieldDoc(genDoc, "newFileExt-doc", newFileExtDoc)
      << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
      << fieldDoc(genDoc, "inputLang-doc", inputLangDoc)
@@ -1769,6 +1856,7 @@ Settings readSettings(const std::string& configFileName)
     config.responseFile   = loadField(cnfobj, "responseFile",    config.responseFile);
     config.responseField  = loadField(cnfobj, "responseField",   config.responseField);
     config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
+    config.testRuns       = loadField(cnfobj, "testRuns",        config.testRuns);
     config.newFileExt     = loadField(cnfobj, "newFileExt",      config.newFileExt);
     config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
     config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
@@ -1994,6 +2082,8 @@ struct CmdLineProc
   {
     if (arg.rfind(phelpconfig, 0) != std::string::npos)
       opts.helpConfig = true;
+    else if (arg.rfind(phelpvariables, 0) != std::string::npos)
+      opts.helpVariables = true;
     else if (arg.rfind(pversion, 0) != std::string::npos)
       opts.showVersion = true;
     else if (arg.rfind(phelp, 0) != std::string::npos)
@@ -2038,6 +2128,7 @@ struct CmdLineProc
   static std::string phelp2;
   static std::string phelp3;
   static std::string phelpconfig;
+  static std::string phelpvariables;
   static std::string pconfigcreate;
   static std::string pdocconfigcreate;
   static std::string pconfigai;
@@ -2055,6 +2146,7 @@ std::string CmdLineProc::phelp            = "--help";
 std::string CmdLineProc::phelp2           = "-help";
 std::string CmdLineProc::phelp3           = "-h";
 std::string CmdLineProc::phelpconfig      = "--help-config";
+std::string CmdLineProc::phelpvariables   = "--help-variables";
 std::string CmdLineProc::pconfigcreate    = "--create-config";
 std::string CmdLineProc::pdocconfigcreate = "--create-doc-config";
 std::string CmdLineProc::pconfigai        = "--config:ai=";
@@ -2333,6 +2425,12 @@ int main(int argc, char** argv)
   if (cmdlnargs.helpConfig)
   {
     printConfigHelp(std::cout);
+    return 0;
+  }
+
+  if (cmdlnargs.helpVariables)
+  {
+    printVariablesHelp(std::cout);
     return 0;
   }
 
