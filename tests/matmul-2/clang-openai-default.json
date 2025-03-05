@@ -1,0 +1,27 @@
+{
+  "invokeai":"/home/pirkelbauer2/git/compilergpt/tests/nas/FT/../../../scripts/gpt4/exec-openai.sh gpt-4o",
+  "compiler":"/usr/bin/clang++",
+  "compileflags":"-I../common -O3 -march=native -DNDEBUG=1",
+  "compilerfamily":"clang",
+  "optreport":"-Rpass-missed=. -c",
+  "leanOptReport":2,
+  "historyFile":"query.json",
+  "responseFile":"response.json",
+  "responseField":"choices[0].message.content",
+  "testScript":"./eval.sh <<filename>> <<compiler>> <<compileflags>>",
+  "testRuns":10,
+  "testOutliers":0,
+  "newFileExt":"",
+  "inputLang":"cpp",
+  "outputLang":"cpp",
+  "systemText":"You are an expert in C++ compiler optimizations and code performance tuning for modern Intel x86.",
+  "systemTextFile":"",
+  "roleOfAI":"assistant",
+  "firstPrompt":"You are provided with the following code snippet:\n<<code>>\nThe execution time for 10 runs of the code is <<scoreint>> centiseconds. The compiler, <<compilerfamily>>, has generated the following optimization report:\n\n<<report>>\n\nYour goal is to focus on high-impact optimizations that significantly reduce execution time. Follow these tasks carefully:\n\n### Task 1: Optimization Analysis\n- Analyze the optimization report and extract a prioritized list of the top 3 issues that are most likely to have a significant impact on performance.\n- Focus on issues that are directly related to execution time bottlenecks or critical paths in the code.\n\n### Task 2: Code Analysis\n- Based on the prioritized list from Task 1, select the single highest-impact issue.\n- Identify the specific code segments that are directly related to this issue. Do not suggest changes to unrelated or low-impact parts of the code.\n\n### Task 3: Code Improvement\n- Rewrite only the identified code segments from Task 2 to address the selected issue and enable better compiler optimizations.\n- Ensure the rewritten code is functionally equivalent to the original code.\nReturn the entire code in a single code block.",
+  "successPrompt":"The execution time for 10 runs of the latest code is <<scoreint>> centiseconds. The compiler, <<compilerfamily>>, has generated the following optimization report:\n\n<<report>>\n\nYour goal is to focus on high-impact optimizations that significantly reduce execution time. Follow these tasks carefully:\n\n### Task 1: Optimization Analysis\n- Analyze the optimization report and extract a prioritized list of the top 3 issues that are most likely to have a significant impact on performance.\n- Focus on issues that are directly related to execution time bottlenecks or critical paths in the code.\n\n### Task 2: Code Analysis\n- Based on the prioritized list from Task 1, select the single highest-impact issue.\n- Identify the specific code segments that are directly related to this issue. Do not suggest changes to unrelated or low-impact parts of the code.\n\n### Task 3: Code Improvement\n- Rewrite only the identified code segments from Task 2 to address the selected issue and enable better compiler optimizations.\n- Ensure the rewritten code is functionally equivalent to the original code.\n",
+  "compFailPrompt":"This version did not compile. Here are the error messages:\n<<report>>\nTry again.",
+  "testFailPrompt":"This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.",
+  "stopOnSuccess":false,
+  "iterations":6
+}
+

@@ -87,30 +87,35 @@ const char* compilerDoc       = "a string pointing to a compiler (<<compiler>>)"
 const char* compileflagsDoc   = "compile flags passed to compiler (<<compileflags>>)";
 const char* compilerfamilyDoc = "a short name for the compiler (<<compilerfamily>>)";
 const char* optreportDoc      = "compiler flags that generate the optimization report";
-const char* leanOptReportDoc  = "a boolean value indicating if adjacent repetitive lines"
-                                " should be removed form the optimization report";
+const char* leanOptReportDoc  = "an integer value from 0-2 indicating pruning level of redundant lines in the report."
+                                "\n  0 (no pruning);"
+                                "\n  1 (remove same messages if adjacent);"
+                                "\n  2 (remove same messages).";
 const char* historyFileDoc    = "a JSON file storing the conversation history <<historyFile>>. invokeai will read the prompt from this file.";
 const char* responseFileDoc   = "a file [.txt or .json] where the AI stores the query response";
 const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal ']'] {'.' field ['[' literal ']']} ]"
-                                " identifying the response in a JSON output file."
-                                " (ignored when responseFile is a text file)";
+                                "\n  identifying the response in a JSON output file."
+                                "\n  (ignored when responseFile is a text file)";
 const char* testScriptDoc     = "an optional string pointing to an executable that assesses the AI output."
-                                " CompilerGpt variables in the string are expanded before the test script"
-                                " is invoked."
-                                " CompilerGpt variables include: <<compiler>>, <<compilerfamily>>"
-                                " <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
-                                " A non-zero exit value indicates that testing faied."
-                                " If successful, the last output line should contain a quality score"
-                                " (may use floating points). A lower score indicates better results."
-                                " If the testScript is not set, it is assumed that the generated"
-                                " code passes the regression tests with a quality score of 0.";
+                                "\n  CompilerGpt variables in the string are expanded before the test script"
+                                "\n  is invoked."
+                                "\n  CompilerGpt variables include: <<compiler>>, <<compilerfamily>>"
+                                "\n  <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
+                                "\n  A non-zero exit value indicates that testing faied."
+                                "\n  If successful, the last output line should contain a quality score"
+                                "\n  (may use floating points). A lower score indicates better results."
+                                "\n  If the testScript is not set, it is assumed that the generated"
+                                "\n  code passes the regression tests with a quality score of 0.";
 const char* testRunsDoc       = "The evaluation harness is run testRuns times and accumulates the score over all runs.";
-const char* newFileExtDoc     = "a string for the extension of the generated file. (if not set, the original file extension will be used.) This setting is mostly useful for language translation tasks.";
+const char* testOutliersDoc   = "Removes num outliers from each side of the test score range.";
+const char* newFileExtDoc     = "a string for the extension of the generated file."
+                                "\n  (if not set, the original file extension will be used.)"
+                                "\n  This setting is mostly useful for language translation tasks.";
 const char* inputLangDoc      = "language delimiter for the input language. Used to delineate <<code>> sections.";
 const char* outputLangDoc     = "language delimiter for the AI response. (if not set defaults to inputLang).";
 const char* systemTextDoc     = "A string setting the context/role in the AI communication.";
 const char* systemTextFileDoc = "If set CompilerGPT writes the system text into the file instead of"
-                                " passing it as first message in the conversation history.";
+                                "\n  passing it as first message in the conversation history.";
 const char* roleOfAIDoc       = "The name of the AI role in the conversation history. Typically assistant.";
 const char* firstPromptDoc    = "The initial prompt.";
 const char* successPromptDoc  = "Follow up prompt when the previous iteration returned a successful code.";
@@ -146,47 +151,57 @@ void printVariablesHelp(std::ostream& os)
      << std::endl;
 }
 
+std::string
+align(std::string doc, const std::string& spaces)
+{
+  boost::replace_all(doc, "\n  ", spaces);
+  return doc;
+}
+
 
 void printConfigHelp(std::ostream& os)
 {
+  static std::string indent = "\n" + std::string(17, ' ');
+
   os << "The following configuration parameters can be set in the config file."
      << "\n"
      << "\nCompiler and optimization report settings:"
-     << "\n  compiler       " << compilerDoc
-     << "\n  compileflags   " << compileflagsDoc
-     << "\n  compilerfamily " << compilerfamilyDoc
-     << "\n  optreport      " << optreportDoc
-     << "\n  leanOptReport  " << leanOptReportDoc
+     << "\n  compiler       " << align(compilerDoc, indent)
+     << "\n  compileflags   " << align(compileflagsDoc, indent)
+     << "\n  compilerfamily " << align(compilerfamilyDoc, indent)
+     << "\n  optreport      " << align(optreportDoc, indent)
+     << "\n  leanOptReport  " << align(leanOptReportDoc, indent)
      << "\n"
      << "\nInteraction with AI"
-     << "\n  invokeai       " << invokeaiDoc
-     << "\n  historyFile    " << historyFileDoc
-     << "\n  responseFile   " << responseFileDoc
-     << "\n  responseField  " << responseFieldDoc
-     << "\n  inputLang      " << inputLangDoc
-     << "\n  outputLang     " << outputLangDoc
+     << "\n  invokeai       " << align(invokeaiDoc, indent)
+     << "\n  historyFile    " << align(historyFileDoc, indent)
+     << "\n  responseFile   " << align(responseFileDoc, indent)
+     << "\n  responseField  " << align(responseFieldDoc, indent)
+     << "\n  inputLang      " << align(inputLangDoc, indent)
+     << "\n  outputLang     " << align(outputLangDoc, indent)
      << "\n"
      << "\nCode validation and quality scoring:"
-     << "\n  newFileExt     " << newFileExtDoc
-     << "\n  testScript     " << testScriptDoc
-     << "\n  testRuns       " << testRunsDoc
+     << "\n  newFileExt     " << align(newFileExtDoc, indent)
+     << "\n  testScript     " << align(testScriptDoc, indent)
+     << "\n  testRuns       " << align(testRunsDoc, indent)
+     << "\n  testOutliers   " << align(testOutliersDoc, indent)
      << "\n"
      << "\nPrompting:"
-     << "\n  systemText     " << systemTextDoc
-     << "\n  systemTextFile " << systemTextFileDoc
-     << "\n  roleOfAI       " << roleOfAIDoc
+     << "\n  systemText     " << align(systemTextDoc, indent)
+     << "\n  systemTextFile " << align(systemTextFileDoc, indent)
+     << "\n  roleOfAI       " << align(roleOfAIDoc, indent)
      << "\n"
      << "\nPrompt text"
-     << "\n  firstPrompt    " << firstPromptDoc
-     << "\n  successPrompt  " << successPromptDoc
-     << "\n  compFailPrompt " << compFailPromptDoc
-     << "\n  testFailPrompt " << testFailPromptDoc
+     << "\n  firstPrompt    " << align(firstPromptDoc, indent)
+     << "\n  successPrompt  " << align(successPromptDoc, indent)
+     << "\n  compFailPrompt " << align(compFailPromptDoc, indent)
+     << "\n  testFailPrompt " << align(testFailPromptDoc, indent)
      << "\n"
      << "\n  Prompt text can contain variables <<code>> [only with firstPrompt] and <<report>>."
      << "\n"
      << "\nIteration control:"
-     << "\n  iterations     " << iterationsDoc
-     << "\n  stopOnSuccess  " << stopOnSuccessDoc
+     << "\n  iterations     " << align(iterationsDoc, indent)
+     << "\n  stopOnSuccess  " << align(stopOnSuccessDoc, indent)
      << "\n"
      << "\nNote:"
      << "\n  A file with default settings can be generated using --create-config and --create-doc-config."
@@ -208,6 +223,7 @@ struct Settings
   std::string  responseField  = "";
   std::string  testScript     = "";
   std::int64_t testRuns       = 1;
+  std::int64_t testOutliers   = 0;
   std::string  newFileExt     = "";
   std::string  inputLang      = "cpp";
   std::string  outputLang     = "cpp";  // same as input language if not specified
@@ -220,7 +236,7 @@ struct Settings
   std::string  testFailPrompt = "This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.";
 
   bool         stopOnSuccess  = false;
-  bool         leanOptReport  = true;
+  std::int64_t leanOptReport  = 2;
   std::int64_t iterations     = 1;
 
   bool languageTranslation() const
@@ -528,7 +544,7 @@ Settings createSettings(Settings settings, const CmdLineArgs& args)
   if (auto pos = compilerFamilySetup.find(args.configCompilerFamily); pos != compilerFamilySetup.end())
     settings = setupCompiler(std::move(settings), args, pos->second);
   else
-    trace(std::cerr, "Not (re)configuring compiler. (Unknown or unspecified compiler)");
+    trace(std::cerr, "Not (re)configuring compiler. (Unknown or unspecified compiler)", "\n");
 
   return settings;
 }
@@ -683,7 +699,7 @@ addToMap(PlaceholderMap m, const Settings& settings)
   m.emplace("optreport",      settings.optreport);
   m.emplace("historyFile",    settings.historyFile);
 /*
-     << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
+     << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
      << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
@@ -896,12 +912,12 @@ filterMessageOutput( const Settings& settings,
   auto beg = diagnosed.begin();
   auto pos = std::remove_if( beg, diagnosed.end(), outsideSourceRange );
 
-  if (settings.leanOptReport)
+  if (settings.leanOptReport > 0)
   {
+    if (settings.leanOptReport > 1)
+      std::sort(beg, pos, LessThanDiagnostic{});
 
-    std::sort(beg, pos, LessThanDiagnostic{});
     pos = std::unique(beg, pos, EqualDiagnostic{});
-
     std::for_each(beg, pos, trimOptReport);
   }
 
@@ -1144,7 +1160,8 @@ std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
 TestResult
 invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std::string& filename)
 {
-  static const std::string prmFileName = "filename";
+  static constexpr long double zeroScore = 0.0;
+  static const     std::string prmFileName = "filename";
 
   if (settings.testScript.empty())
   {
@@ -1168,7 +1185,7 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
                                      PlaceholderMap{ {prmFileName, filename} }
                                    );
 
-  long double              totalScore = 0.0;
+  std::vector<long double> scores;
   std::vector<std::string> args;
 
   splitArgs(testCall, args);
@@ -1209,8 +1226,14 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
     if (!success)
       return { false, nanValue<long double>(), std::move(errs) };
 
-    totalScore += testScore(success, outs);
+    scores.push_back(testScore(success, outs));
   }
+
+  std::sort(scores.begin(), scores.end());
+
+  const auto  scoreBeg   = std::next(scores.begin(), settings.testOutliers);
+  const auto  scoreLim   = std::prev(scores.end(),   settings.testOutliers);
+  long double totalScore = std::accumulate(scoreBeg, scoreLim, zeroScore, std::plus<long double>{});
 
   return { true, totalScore, "" };
 }
@@ -1687,18 +1710,32 @@ loadField(const json::object& cnfobj, std::string fld, const std::string& alt)
 }
 
 /// queries a boolean field from a JSON object.
-bool loadField(const json::object& cnfobj, std::string fld, bool alt)
+bool
+loadField(const json::object& cnfobj, std::string fld, bool alt)
 {
   const auto pos = cnfobj.find(fld);
 
   if (pos != cnfobj.end())
     return pos->value().as_bool();
 
+  if (const std::int64_t* ip = pos->value().if_int64())
+  {
+    trace(std::cerr, "converting integer to boolean for field ", fld, "\n");
+    return *ip;
+  }
+
+  if (const std::uint64_t* up = pos->value().if_uint64())
+  {
+    trace(std::cerr, "converting integer to boolean for field ", fld, "\n");
+    return *up;
+  }
+
   return alt;
 }
 
 /// queries an int64_t field from a JSON object.
-std::int64_t loadField(const json::object& cnfobj, std::string fld, std::int64_t alt)
+std::int64_t
+loadField(const json::object& cnfobj, std::string fld, std::int64_t alt)
 {
   const auto pos = cnfobj.find(fld);
 
@@ -1709,8 +1746,19 @@ std::int64_t loadField(const json::object& cnfobj, std::string fld, std::int64_t
 
     if (const std::uint64_t* up = pos->value().if_uint64())
     {
-      assert(*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()));
+      if (*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()))
+      {
+        trace(std::cerr, "uint64_t value exceeds int64_t range for field ", fld, "\n");
+        throw std::runtime_error("uint64_t value exceeds int64_t range.");
+      }
+
       return *up;
+    }
+
+    if (const bool* bp = pos->value().if_bool())
+    {
+      trace(std::cerr, "converting boolean value to integer for field ", fld, "\n");
+      return *bp;
     }
   }
 
@@ -1725,12 +1773,14 @@ std::string replace_nl(std::string s)
   return s;
 }
 
-std::string fieldDoc(bool gen, const char* field, const char* doc)
+std::string fieldDoc(bool gen, const char* field, const char* docString)
 {
   if (!gen) return {};
 
-  std::string res = "\n  \"";
+  std::string res;
+  std::string doc = align(docString, " ");
 
+  res += "\n  \"";
   res += field;
   res += "\":\"";
   res += doc;
@@ -1762,7 +1812,7 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << fieldDoc(genDoc, "optreport-doc", optreportDoc)
      << "\n  \"optreport\":\""      << settings.optreport << "\","
      << fieldDoc(genDoc, "leanOptReport-doc", leanOptReportDoc)
-     << "\n  \"leanOptReport\":"    << as_string(settings.leanOptReport) << ","
+     << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
      << fieldDoc(genDoc, "historyFile-doc", historyFileDoc)
      << "\n  \"historyFile\":\""    << settings.historyFile << "\","
      << fieldDoc(genDoc, "responseFile-doc", responseFileDoc)
@@ -1773,6 +1823,8 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
      << fieldDoc(genDoc, "testRuns-doc", testRunsDoc)
      << "\n  \"testRuns\":"         << settings.testRuns << ","
+     << fieldDoc(genDoc, "testOutliers-doc", testOutliersDoc)
+     << "\n  \"testOutliers\":"     << settings.testOutliers << ","
      << fieldDoc(genDoc, "newFileExt-doc", newFileExtDoc)
      << "\n  \"newFileExt\":\""     << settings.newFileExt << "\"" << ","
      << fieldDoc(genDoc, "inputLang-doc", inputLangDoc)
@@ -1857,6 +1909,7 @@ Settings readSettings(const std::string& configFileName)
     config.responseField  = loadField(cnfobj, "responseField",   config.responseField);
     config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
     config.testRuns       = loadField(cnfobj, "testRuns",        config.testRuns);
+    config.testOutliers   = loadField(cnfobj, "testOutliers",    config.testOutliers);
     config.newFileExt     = loadField(cnfobj, "newFileExt",      config.newFileExt);
     config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
     config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
@@ -1885,6 +1938,12 @@ Settings readSettings(const std::string& configFileName)
     std::cerr << "Unknown error: Unable to read settings file."
               << "\n  => Using default values."
               << std::endl;
+  }
+
+  if (settings.testRuns <= 2*settings.testOutliers)
+  {
+    trace(std::cerr, settings.testRuns, "(testRuns) <= ", 2*settings.testOutliers, "(2*testOutliers)\n");
+    throw std::runtime_error{"settings.testRuns <= 2*settings.testOutliers"};
   }
 
   return settings;
@@ -2333,9 +2392,9 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
   }
   catch (const MultipleCodeSectionsError&)
   {
-    std::string response = "Found multiple code sections in the output. Return the response within a single section.";
+    std::string response = "Found multiple code sections in the output. Return the entire code within a single code.";
 
-    variants.emplace_back("--many-codes--", TestResult{false, nanValue<long double>(), "<too may code segments>"});
+    variants.emplace_back("|codes-section|>1", TestResult{false, nanValue<long double>(), "<too may code segments>"});
     query = appendPrompt(std::move(query), std::move(response));
   }
 
