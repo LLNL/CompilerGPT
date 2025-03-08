@@ -6,20 +6,22 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
-rm -f perf.bin
-
 src=$1
 comp=$2
 
 shift 2
 
-(set -x; $comp "$@" ./perf.cc "$src" -o perf.bin)
+# only compiler if the binary is older than the source file
+if [ "perf.bin" -ot $src ]; then
+  (set -x; $comp "$@" ./perf.cc "$src" -o perf.bin)
 
-success="$?"
-if [ $success -gt 0 ]; then
-  exit $success
+  success="$?"
+  if [ $success -gt 0 ]; then
+    exit $success
+  fi
 fi
 
+export OMP_NUM_THREADS=24
 ./perf.bin
 
 exit "$?"

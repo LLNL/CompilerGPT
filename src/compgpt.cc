@@ -1962,10 +1962,16 @@ void createConfigFile(CmdLineArgs args)
 
   if (args.configAI == CmdLineArgs::noai)
   {
-    std::cerr << "Unspecified AI component. Using gpt4 as default component."
+    std::cerr << "Unspecified AI component."
               << std::endl;
 
-    args.configAI = CmdLineArgs::gpt4;
+    if (args.configFrom.empty())
+    {
+      std::cerr << "** Using default model: OpenAI/gpt-4o **"
+                <<  std::endl;
+
+      args.configAI = CmdLineArgs::gpt4;
+    }
   }
 
   Settings      settings = readSettings(args.configFrom);
