@@ -1,12 +1,15 @@
 // CompilerGPT (compgpt)
-//   communicates iteratively with AI models to
+//   Communicates iteratively with AI models to
 //   - improve code bases with an optional optimization report
 //   - translate code between languages
 //
-// license: SPDX BSD 3-Clause "New" or "Revised" License
+// Copyright (c) 2025, Lawrence Livermore National Security, LLC.
+// All rights reserved.  LLNL-CODE-2000601
+//
+// License: SPDX BSD 3-Clause "New" or "Revised" License
 //          see LICENSE file for details
 //
-// authors: pirkelbauer2,liao6 (at) llnl.gov
+// Authors: pirkelbauer2,liao6 (at) llnl.gov
 
 #include <fstream>
 #include <string>
@@ -20,8 +23,6 @@
 #include <boost/process.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/json/src.hpp>
-
-//~ #include <boost/algorithm/string/predicate.hpp>
 
 namespace json = boost::json;
 

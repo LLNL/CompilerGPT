@@ -1,4 +1,9 @@
-// source: https://www.boost.org/doc/libs/1_76_0/libs/json/doc/html/json/examples.html
+// PrettyJSON (prettyjson)
+//   Pretty prints JSON file (e.g., conversation history)
+//   Code derived from BOOST sample code.
+//   source: https://www.boost.org/doc/libs/1_76_0/libs/json/doc/html/json/examples.html
+//
+// Authors: pirkelbauer2,liao6 (at) llnl.gov
 
 /*
     This example parses a JSON file and pretty-prints
