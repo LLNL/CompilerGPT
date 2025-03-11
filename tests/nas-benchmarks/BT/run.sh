@@ -1,19 +1,30 @@
+src=bt.c
+kernel="1778-2199"
 
+./clean.sh
 
-for i in $(seq 1 6); do 
-  nohup ../../../compgpt.bin --config=gpt4o_guided.json --kernel=1775-2195 --csvsummary=gpt4o_guided.csv bt.c
-  ./save-experiment.sh gpt4o.guided.$i
+for i in $(seq 6 7); do 
+  testbase="clang-openai-default"
+  echo "$testbase.$i"
+  time ../../../compgpt.bin --config="$testbase.json" --kernel=$kernel --csvsummary="$testbase.csv" $src >log.txt 2>&1
+  ./save-experiment.sh "$testbase.$i"
   ./clean.sh
 
-  nohup ../../../compgpt.bin --config=gpt4o_unguided.json --kernel=1775-2195 --csvsummary=gpt4o_unguided.csv bt.c
-  ./save-experiment.sh gpt4o.unguided.$i
+  testbase="clang-claude-default"
+  echo "$testbase.$i"
+  time ../../../compgpt.bin --config="$testbase.json" --kernel=$kernel --csvsummary="$testbase.csv" $src >log.txt 2>&1
+  ./save-experiment.sh "$testbase.$i"
   ./clean.sh
 
-  nohup ../../../compgpt.bin --config=claude_guided.json --kernel=1775-2195 --csvsummary=claude_guided.csv bt.c
-  ./save-experiment.sh claude.guided.$i
+  testbase="gcc-openai-default"
+  echo "$testbase.$i"
+  time ../../../compgpt.bin --config="$testbase.json" --kernel=$kernel --csvsummary="$testbase.csv" $src >log.txt 2>&1
+  ./save-experiment.sh "$testbase.$i"
   ./clean.sh
 
-  nohup ../../../compgpt.bin --config=claude_unguided.json --kernel=1775-2195 --csvsummary=claude_unguided.csv bt.c
-  ./save-experiment.sh claude.unguided.$i
+  testbase="gcc-claude-default"
+  echo "$testbase.$i"
+  time ../../../compgpt.bin --config="$testbase.json" --kernel=$kernel --csvsummary="$testbase.csv" $src >log.txt 2>&1
+  ./save-experiment.sh "$testbase.$i"
   ./clean.sh
 done

@@ -1,2 +1,2 @@
-rm -f *.o nohup.out query.json response.*
-rm -f bt[0-9]*.c bt[0-9]*.yaml
+rm -f *.o log.txt query.json response.* *.bin
+rm -f bt[0-9]*.c bt*.opt.yaml *stats q.json
