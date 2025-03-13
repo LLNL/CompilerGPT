@@ -61,6 +61,11 @@ New configurations can be derived from existing ones by using --config:from=conf
     compgpt.bin --create-config --config=ollama.json --config:ai=ollama --config:model=llama3.3 --config:from=claude.json
 
 
+### Example
+
+CompilerGPT generates different versions and a [conversation history](Example.md).
+
+
 ### Other Use Cases
 
 In addition, compgpt can be setup to use AI for translation projects. Currently, the
