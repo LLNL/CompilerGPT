@@ -1361,8 +1361,8 @@ void storeQuery(const Settings& settings, const json::value& query)
 json::value
 parseJsonLine(std::string line)
 {
-  json::stream_parser p;
-  json::error_code    ec;
+  json::stream_parser       p;
+  boost::system::error_code ec;
 
   p.write(line.c_str(), line.size(), ec);
 
