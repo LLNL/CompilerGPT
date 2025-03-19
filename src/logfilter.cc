@@ -40,7 +40,7 @@ json::value
 parseJsonLine(std::string line)
 {
   json::stream_parser p;
-  json::error_code    ec;
+  boost::system::error_code ec;
 
   p.write(line.c_str(), line.size(), ec);
 
