@@ -960,7 +960,7 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
 
   trace(std::cerr, "compile: ", settings.compiler, range(args), '\n');
 
-  boost::asio::io_service  ios;
+  boost::asio::io_context  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
@@ -1022,7 +1022,7 @@ void invokeAI(const Settings& settings)
   trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
 
   std::vector<std::string> noargs;
-  boost::asio::io_service  ios;
+  boost::asio::io_context  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
@@ -1199,7 +1199,7 @@ invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std
   {
     trace(std::cerr, "test: ", testHarness, " ", range(args), '\n');
 
-    boost::asio::io_service  ios;
+    boost::asio::io_context  ios;
     std::future<std::string> outstr;
     std::future<std::string> errstr;
     std::future<int>         exitCode;
@@ -2002,7 +2002,7 @@ struct CmdLineProc
     }
 
     std::vector<std::string> args{"--version"};
-    boost::asio::io_service  ios;
+    boost::asio::io_context  ios;
     std::future<std::string> outstr;
     std::future<std::string> errstr;
     std::future<int>         exitCode;
