@@ -10,6 +10,3 @@ Here are the conversation histories of the best runs.
 * OpenMP NAS BP Benchmark
 * OpenMP NAS FT Benchmark
 
-## Log files
-
-The log files collected during the evaluation can be found in the logs folder. (TODO)
