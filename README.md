@@ -13,7 +13,7 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
 
 Minimal Requirements:
 * C++ compiler supporting C++20, e.g. GCC 12
-  + boost header only (boost > 1.78). Required libraries include algorithm, asio, json, process
+  + boost header only (boost > 1.78 such as 1.85, 1.87). Required libraries include algorithm, asio, json, process
 
 * curl
 
