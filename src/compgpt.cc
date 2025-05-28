@@ -18,6 +18,7 @@
 #include <charconv>
 #include <regex>
 #include <filesystem>
+#include <chrono>
 
 #include <boost/asio.hpp>
 #include <boost/process.hpp>
@@ -246,6 +247,39 @@ struct Settings
            && (inputLang != outputLang)
            );
   }
+};
+
+
+/// collection of variables (i.e., timing related).
+struct GlobalVars
+{
+  std::size_t aiTime      = 0;
+  std::size_t compileTime = 0;
+  std::size_t evalTime    = 0;
+};
+
+
+/// simple class to help measuring program timing
+struct MeasureRuntime
+{
+    using time_point = std::chrono::time_point<std::chrono::high_resolution_clock>;
+
+    explicit
+    MeasureRuntime(std::size_t& accum)
+    : accu(accum), start(std::chrono::high_resolution_clock::now())
+    {}
+
+    ~MeasureRuntime()
+    {
+      const time_point  stop = std::chrono::high_resolution_clock::now();
+      const std::size_t elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(stop-start).count();
+
+      accu += elapsed;
+    }
+
+  private:
+    std::size_t& accu;
+    time_point   start;
 };
 
 
@@ -941,8 +975,10 @@ filterMessageOutput( const Settings& settings,
 
 /// calls the compiler component
 CompilationResult
-invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std::string> args)
+invokeCompiler(const Settings& settings, GlobalVars& globals, SourceRange kernelrng, std::vector<std::string> args)
 {
+  MeasureRuntime timer(globals.compileTime);
+
   if (settings.compiler.size() == 0)
   {
     std::cerr << "No compiler configured. Skipping compile test."
@@ -985,6 +1021,7 @@ invokeCompiler(const Settings& settings, SourceRange kernelrng, std::vector<std:
 CompilationResult
 compileResult( const Settings& settings,
                const CmdLineArgs& cmdline,
+               GlobalVars& globals,
                std::string_view newFile,
                SourceRange kernelrng
              )
@@ -1003,7 +1040,7 @@ compileResult( const Settings& settings,
 
   args.emplace_back(std::string(newFile));
 
-  CompilationResult res = invokeCompiler(settings, kernelrng, args);
+  CompilationResult res = invokeCompiler(settings, globals, kernelrng, args);
 
   trace(std::cerr, res.output(), '\n');
   return res;
@@ -1011,14 +1048,16 @@ compileResult( const Settings& settings,
 
 /// convenience function for first iteration
 CompilationResult
-compileResult(const Settings& settings, const CmdLineArgs& cmdline)
+compileResult(const Settings& settings, const CmdLineArgs& cmdline, GlobalVars& globals)
 {
-  return compileResult(settings, cmdline, cmdline.all.back(), cmdline.kernel);
+  return compileResult(settings, cmdline, globals, cmdline.all.back(), cmdline.kernel);
 }
 
 /// calls AI and returns result in response file
-void invokeAI(const Settings& settings)
+void invokeAI(const Settings& settings, GlobalVars& globals)
 {
+  MeasureRuntime timer(globals.aiTime);
+
   trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
 
   std::vector<std::string> noargs;
@@ -1159,10 +1198,12 @@ std::ostream& operator<<(std::ostream& os, const CsvResultPrinter& el)
 
 /// invokes the test script
 TestResult
-invokeTestScript(const Settings& settings, const PlaceholderMap& vars, const std::string& filename)
+invokeTestScript(const Settings& settings, GlobalVars& globals, const PlaceholderMap& vars, const std::string& filename)
 {
   static constexpr long double zeroScore = 0.0;
   static const     std::string prmFileName = "filename";
+
+  MeasureRuntime timer(globals.evalTime);
 
   if (settings.testScript.empty())
   {
@@ -2272,7 +2313,7 @@ qualityText(const std::vector<Revision>& variants)
 
 /// generates an assessment for the initial code
 Revision
-initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
+initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs, GlobalVars& globals)
 {
   static constexpr const char* harrnessNotRun = "test harness not run on inital code (language translation)";
 
@@ -2281,7 +2322,7 @@ initialAssessment(const Settings& settings, const CmdLineArgs& cmdlnargs)
   if (settings.languageTranslation())
     return { fileName, TestResult{false, nanValue<long double>(), harrnessNotRun } };
 
-  return { fileName, invokeTestScript(settings, cmdlnargs.vars, fileName) };
+  return { fileName, invokeTestScript(settings, globals, cmdlnargs.vars, fileName) };
 }
 
 /// prints revision information with specified printer
@@ -2296,13 +2337,14 @@ void reportResults(std::ostream& os, const std::vector<Revision>& variants)
 std::tuple<json::value, std::vector<Revision>, bool>
 promptResponseEval( const CmdLineArgs& cmdlnargs,
                     const Settings& settings,
+                    GlobalVars& globals,
                     json::value query,
                     std::vector<Revision> variants,
                     bool lastIteration
                   )
 {
   storeQuery(settings, query);
-  invokeAI(settings);
+  invokeAI(settings, globals);
 
   std::string response = loadAIResponse(settings);
 
@@ -2311,12 +2353,12 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
   try
   {
     const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, response);
-    CompilationResult compres         = compileResult(settings, cmdlnargs, newFile, kernelrange);
+    CompilationResult compres         = compileResult(settings, cmdlnargs, globals, newFile, kernelrange);
 
     if (compres.success())
     {
       variants.emplace_back( newFile,
-                             invokeTestScript(settings, cmdlnargs.vars, newFile)
+                             invokeTestScript(settings, globals, cmdlnargs.vars, newFile)
                            );
 
       if (variants.back().result().success())
@@ -2411,9 +2453,9 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 /// core loop managing AI/tool interactions
 /// \return the conversation and the code revisions
 std::tuple<json::value, std::vector<Revision> >
-driver(const CmdLineArgs& cmdlnargs, const Settings& settings)
+driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globals)
 {
-  CompilationResult     compres    = compileResult(settings, cmdlnargs);
+  CompilationResult     compres    = compileResult(settings, cmdlnargs, globals);
   int                   iterations = settings.iterations;
 
   trace(std::cerr, "compiled ", compres.success(), '\n');
@@ -2428,7 +2470,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings)
     exit(1);
   }
 
-  std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs) };
+  std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs, globals) };
   json::value           query    = initialPrompt( settings,
                                                   cmdlnargs,
                                                   std::move(compres.output()),
@@ -2445,6 +2487,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings)
 
       std::tie(query, variants, stopEarly) = promptResponseEval( cmdlnargs,
                                                                  settings,
+                                                                 globals,
                                                                  std::move(query),
                                                                  std::move(variants),
                                                                  iterations == 0
@@ -2514,7 +2557,7 @@ int main(int argc, char** argv)
     return 1;
   }
 
-
+  GlobalVars        globals;
   Settings          settings   = readSettings(cmdlnargs.configFileName);
 
   std::cout << "Settings: ";
@@ -2524,7 +2567,7 @@ int main(int argc, char** argv)
   std::cout << "CmdlineArgs: " << cmdlnargs.all.back() << "@" << cmdlnargs.kernel
             << std::endl;
 
-  const auto [conversationHistory, revisions] = driver(cmdlnargs, settings);
+  const auto [conversationHistory, revisions] = driver(cmdlnargs, settings, globals);
 
   //
   // prepare final report
@@ -2542,6 +2585,12 @@ int main(int argc, char** argv)
     of << "---" << std::endl;
     reportResults<CsvResultPrinter>(of, revisions);
   }
+
+  std::cerr << "Timing: "
+            << globals.aiTime << "ms (AI)   "
+            << globals.evalTime << "ms (eval)   "
+            << globals.compileTime << "ms (compile)"
+            << std::endl;
 
   return 0;
 }
