@@ -21,9 +21,29 @@
 #include <chrono>
 
 #include <boost/asio.hpp>
+#include <boost/version.hpp>
+
+
+#if BOOST_VERSION < 108800
+
 #include <boost/process.hpp>
+
+namespace boostprocess = boost::process;
+
+#else
+// for boost 1.88 and later, include extra header for backward compatibility
+
+#include <boost/process/v1/args.hpp>
+#include <boost/process/v1/system.hpp>
+#include <boost/process/v1/io.hpp>
+
+namespace boostprocess = boost::process::v1;
+
+#endif /* BOOST_VERSION */
+
 #include <boost/algorithm/string.hpp>
 #include <boost/json/src.hpp>
+
 
 namespace json = boost::json;
 
@@ -1000,12 +1020,12 @@ invokeCompiler(const Settings& settings, GlobalVars& globals, SourceRange kernel
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boost::process::child    compilation( settings.compiler,
-                                        boost::process::args(args),
-                                        boost::process::std_in.close(),
-                                        boost::process::std_out > outstr,
-                                        boost::process::std_err > errstr,
-                                        boost::process::on_exit = exitCode,
+  boostprocess::child      compilation( settings.compiler,
+                                        boostprocess::args(args),
+                                        boostprocess::std_in.close(),
+                                        boostprocess::std_out > outstr,
+                                        boostprocess::std_err > errstr,
+                                        boostprocess::on_exit = exitCode,
                                         ios
                                       );
 
@@ -1065,12 +1085,12 @@ void invokeAI(const Settings& settings, GlobalVars& globals)
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boost::process::child    ai( settings.invokeai,
-                               boost::process::args(noargs),
-                               boost::process::std_in.close(),
-                               boost::process::std_out > outstr,
-                               boost::process::std_err > errstr,
-                               boost::process::on_exit = exitCode,
+  boostprocess::child      ai( settings.invokeai,
+                               boostprocess::args(noargs),
+                               boostprocess::std_in.close(),
+                               boostprocess::std_out > outstr,
+                               boostprocess::std_err > errstr,
+                               boostprocess::on_exit = exitCode,
                                ios
                              );
 
@@ -1244,12 +1264,12 @@ invokeTestScript(const Settings& settings, GlobalVars& globals, const Placeholde
     std::future<std::string> outstr;
     std::future<std::string> errstr;
     std::future<int>         exitCode;
-    boost::process::child    tst( testHarness,
-                                  boost::process::args(args),
-                                  boost::process::std_in.close(),
-                                  boost::process::std_out > outstr,
-                                  boost::process::std_err > errstr,
-                                  boost::process::on_exit = exitCode,
+    boostprocess::child      tst( testHarness,
+                                  boostprocess::args(args),
+                                  boostprocess::std_in.close(),
+                                  boostprocess::std_out > outstr,
+                                  boostprocess::std_err > errstr,
+                                  boostprocess::on_exit = exitCode,
                                   ios
                                 );
 
@@ -2047,12 +2067,12 @@ struct CmdLineProc
     std::future<std::string> outstr;
     std::future<std::string> errstr;
     std::future<int>         exitCode;
-    boost::process::child    compilerCheck( comp,
-                                            boost::process::args(args),
-                                            boost::process::std_in.close(),
-                                            boost::process::std_out > outstr,
-                                            boost::process::std_err > errstr,
-                                            boost::process::on_exit = exitCode,
+    boostprocess::child      compilerCheck( comp,
+                                            boostprocess::args(args),
+                                            boostprocess::std_in.close(),
+                                            boostprocess::std_out > outstr,
+                                            boostprocess::std_err > errstr,
+                                            boostprocess::on_exit = exitCode,
                                             ios
                                           );
 
@@ -2594,4 +2614,3 @@ int main(int argc, char** argv)
 
   return 0;
 }
-
