@@ -1,8 +1,8 @@
 # Example - Matrix Matrx Multiplication
 
-This is from the test Matmul-2. CompilerGPT was configured to use Claude Sonnet and clang. (Output reformatted for presentation.)
+This is from the test [matmul-2](../tests/matmul-2/). CompilerGPT was configured to use Claude Sonnet and clang. (Output reformatted for presentation.)
 
-## Iteration 0
+## Iteration 1
 
 ### Prompt
 
@@ -163,7 +163,7 @@ This optimization:
 
 The block size should be tuned based on your specific CPU's cache size, but 32 is a reasonable starting point for most modern x86 processors.
 
-## Iteration 1
+## Iteration 2
 
 ### Prompt
 
@@ -231,7 +231,7 @@ This version:
 
 This approach should significantly improve performance by reducing cache misses and allowing better register reuse without introducing any incompatibilities."
 
-## Iteration 2
+## Iteration 3
 
 ### Prompt
 
@@ -354,7 +354,7 @@ This solution:
 
 The manual unrolling creates predictable, regular access patterns that should make it easier for the compiler to generate SIMD instructions. The block size of 4 is chosen to match common SIMD width for floating-point operations, though the actual SimpleMatrix value type might warrant a different block size."
 
-## Iteration 3
+## Iteration 4
 
 ### Prompt
 
@@ -516,7 +516,7 @@ This solution addresses the key issues by:
 
 The key insight is that by accumulating values locally and only writing back to memory once, we significantly reduce memory operations that were causing performance problems."
 
-## Iteration 4
+## Iteration 5
 
 ### Prompt
 
@@ -598,7 +598,7 @@ This version:
 
 The key modification is using the matrix's native value type instead of assuming it's a double."
 
-## Iteration 5
+## Iteration 6
 
 ### Prompt
 
@@ -775,4 +775,3 @@ simplematrix4.cc    : false  score: nan
 simplematrix5.cc    : true   score: 20913
 simplematrix6.cc    : true   score: 12737
 ```
-
