@@ -11,7 +11,7 @@ endif
 
 
 BINARIES := compgpt.bin logfilter.bin prettyjson.bin
-HEADERS  :=
+HEADERS  := ./include/tool_version.hpp
 SOURCES  := $(BINARY:.bin=.cc)
 OBJECTS  := $(SOURCES:.cc=.o)
 
@@ -22,9 +22,8 @@ WARNFLAG   ?= -Wall -Wextra -pedantic
 OPTFLAG    ?= -O3
 CPUARCH    ?= -march=native
 DBGFLAG    ?= -DNDEBUG=1
-VERSIONDEF ?= -DTOOL_VERSION=\"$(VERSION_STRING)\"
 
-CXXFLAGS   := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG) $(VERSIONDEF)
+CXXFLAGS   := $(CXXVERSION) $(WARNFLAG) $(OPTFLAG) $(CPUARCH) $(DBGFLAG)
 
 $(info $(OBJECTS))
 

@@ -17,6 +17,8 @@
 
 #include <boost/json/src.hpp>
 
+#include "tool_version.hpp"
+
 namespace json = boost::json;
 
 namespace

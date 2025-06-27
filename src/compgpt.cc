@@ -23,6 +23,8 @@
 #include <boost/asio.hpp>
 #include <boost/version.hpp>
 
+#include "tool_version.hpp"
+
 
 #if BOOST_VERSION < 108800
 
