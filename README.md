@@ -22,20 +22,42 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
 ### Minimal Requirements
 
 - C++ compiler supporting C++20, e.g. GCC 12+
-  - Boost header only (boost > 1.78 such as 1.85, 1.87). Required libraries include algorithm, asio, json, process
+  - make: Boost header only (boost > 1.78 such as 1.85, 1.87). Required libraries include algorithm, asio, json, process
+  - cmake (>=3.24): downloads boost 1.84 automatically
 - curl
 - Python 3 (for prettyjson.py)
 
 #### Installing Dependencies
 
-- **Boost**: Download and install from https://www.boost.org/
+- **Boost**: Download and install from https://www.boost.org/ or use cmake for installation
 - **curl**: Install via your package manager (e.g., `sudo apt install curl`)
 - **Python 3**: Install via your package manager (e.g., `sudo apt install python3`)
+
+#### Install with make
+
+Set BOOST\_HOME to the boost installation directory and call make to build compgpt.bin, logfilter.bin, and prettyjson.bin.
+
+```bash
+compilergpt> export BOOST_HOME="/path/to/boost/installation"
+compilergpt> make -j8
+```
+
+#### Install with cmake
+
+Build compgpt.bin, logfilter.bin, and prettyjson.bin with cmake. cmake will download and use a tested boost version.
+
+```bash
+compilergpt> mkdir build
+compilergpt> cd build
+compilergpt/build> cmake ..
+compilergpt/build> make -j8
+```
 
 ---
 
 ### Directory Structure
 
+- `include/`: C++ header files
 - `src/`: C++ sources (compgpt and tools)
 - `scripts/`: Scripts to interact with AI (gpt, claude, ollama, openrouter)
 - `tests/`: Test codes to illustrate the working of CompilerGPT
