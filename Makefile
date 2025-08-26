@@ -33,15 +33,30 @@ default: $(BINARIES)
 
 %.o: src/%.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DLLFLAG) -o $@ -c $<
+	
+llmtools.o: src/llmtools.cc $(HEADERS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DLLFLAG) -o $@ -c $<	
+	
+
+libllmtools.a: llmtools.o
+	ar -r $@ $<
+
+compgpt.bin: compgpt.o libllmtools.a
+	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
+
+test-llmtools.bin: test-llmtools.o libllmtools.a
+	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
 
 %.bin: %.o
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
+	
+	
 
 .phony: clean
 clean:
-	rm -rf *.o
+	rm -rf *.o 
 
 .phony: pure
 pure: clean
-	rm -rf *.bin query.json response.txt
+	rm -rf *.bin *.a query.json response.txt
 

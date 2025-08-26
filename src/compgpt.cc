@@ -42,7 +42,9 @@ namespace boostprocess = boost::process::v1;
 #endif /* BOOST_VERSION */
 
 #include <boost/algorithm/string.hpp>
-#include <boost/json/src.hpp>
+#include <boost/json.hpp>
+
+#include "llmtools.h"
 
 
 namespace json = boost::json;
@@ -235,14 +237,21 @@ void printConfigHelp(std::ostream& os)
 /// encapsulates all settings that can be configured through a JSON file.
 struct Settings
 {
+  llmtools::Settings llmSettings;
+
+#if BEFORE_LLMTOOLS  
   std::string  invokeai       = "/path/to/ai/invocation";
+  std::string  historyFile    = "query.json";
+  std::string  responseFile   = "response.txt";
+  std::string  responseField  = "";
+  std::string  roleOfAI       = "system";
+  std::string  systemTextFile = "";
+#endif /* BEFORE_LLMTOOLS */
+
   std::string  compiler       = "clang";
   std::string  compilerfamily = "clang";
   std::string  compileflags   = "-O3 -march=native -DNDEBUG=1";
   std::string  optreport      = "-Rpass-missed=. -c";
-  std::string  historyFile    = "query.json";
-  std::string  responseFile   = "response.txt";
-  std::string  responseField  = "";
   std::string  testScript     = "";
   std::int64_t testRuns       = 1;
   std::int64_t testOutliers   = 0;
@@ -250,8 +259,6 @@ struct Settings
   std::string  inputLang      = "cpp";
   std::string  outputLang     = "cpp";  // same as input language if not specified
   std::string  systemText     = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
-  std::string  roleOfAI       = "system";
-  std::string  systemTextFile = "";
   std::string  firstPrompt    = "Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Recognize the coding patterns.\nTask 2: Make pattern specific optimizations to the code. Do not use OpenMP.\nTask 3: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 4: Use the prioritized list to improve the input code further.";
   std::string  successPrompt = "The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.";
   std::string  compFailPrompt = "This version did not compile. Here are the error messages:\n<<report>>\nTry again.";
@@ -452,7 +459,6 @@ PlaceholderMap::next(std::string_view prompt)
 /// encapsulates all command line switches and their settings
 struct CmdLineArgs
 {
-  enum AI             { gpt4=0, claude=1, ollama=2, openrouter=3, noai=4, errai=5 };
   enum CompilerFamily { gcc=0, clang=1, nocomp=2, errcomp=3 };
 
   bool                          help                 = false;
@@ -461,7 +467,7 @@ struct CmdLineArgs
   bool                          showVersion          = false;
   bool                          configCreate         = false;
   bool                          withDocFields        = false;
-  AI                            configAI             = noai;
+  llmtools::LLMProvider         configAI             = llmtools::LLMnone;
   CompilerFamily                configCompilerFamily = nocomp;
   std::string                   configModel          = "";
   std::string                   configFileName       = "compgpt.json";
@@ -474,15 +480,6 @@ struct CmdLineArgs
   PlaceholderMap                vars;
 };
 
-void checkExistance(std::string_view filename)
-{
-  if (std::filesystem::exists(filename)) return;
-
-  std::cerr << "default script " << filename << " not found\n"
-            << "manually modify the generated JSON configuration file!"
-            << std::endl;
-}
-
 
 /// returns a C string for a boolean. If \p align is set true gets a trailing blank.
 /// the returned string must not be freed or overwritten.
@@ -494,17 +491,6 @@ const char* as_string(bool v, bool align = false)
   return "true ";
 }
 
-using AISetupBase = std::tuple<const char*, const char*, const char*, const char*>;
-struct AISetup : AISetupBase
-{
-  using base = AISetupBase;
-  using base::base;
-
-  const char* script()         const { return std::get<0>(*this); }
-  const char* defaultModel()   const { return std::get<1>(*this); }
-  const char* responseField()  const { return std::get<2>(*this); }
-  const char* systemTextFile() const { return std::get<3>(*this); }
-};
 
 using CompilerSetupBase = std::tuple<const char*, const char*>;
 struct CompilerSetup : CompilerSetupBase
@@ -515,30 +501,6 @@ struct CompilerSetup : CompilerSetupBase
   const char* reportFlags()    const { return std::get<0>(*this); }
   const char* compilerFamily() const { return std::get<1>(*this); }
 };
-
-// setup connection for curl scripts
-Settings setupWithCurl(Settings settings, const CmdLineArgs& args, AISetup setup)
-{
-  std::string invokeai = args.programPath / setup.script();
-  std::string model    = args.configModel;
-
-  checkExistance(invokeai);
-
-  if (model.empty())
-  {
-    model = setup.defaultModel();
-    std::cout << "Using default model: " << model << std::endl;
-  }
-
-  settings.invokeai       = invokeai;
-  settings.responseFile   = "response.json";
-  settings.responseField  = setup.responseField();
-  settings.systemTextFile = setup.systemTextFile();
-  settings.roleOfAI       = "assistant";
-  settings.invokeai       = invokeai + " " + model;
-
-  return settings;
-}
 
 Settings setupCompiler(Settings settings, const CmdLineArgs& args, CompilerSetup setup)
 {
@@ -557,42 +519,14 @@ Settings setupCompiler(Settings settings, const CmdLineArgs& args, CompilerSetup
 Settings createSettings(Settings settings, const CmdLineArgs& args)
 {
   using CompilerFamilySetup = std::unordered_map<CmdLineArgs::CompilerFamily, CompilerSetup>;
-  using ModelSetup          = std::unordered_map<CmdLineArgs::AI, AISetup>;
-
-  static const ModelSetup modelSetup
-      = { { CmdLineArgs::gpt4,       { "scripts/gpt4/exec-openai.sh", // script
-                                       "gpt-4o",                      // defaultModel
-                                       "choices[0].message.content",  // responseField
-                                       ""                             // systemTextFile
-                                     }
-          },
-          { CmdLineArgs::claude,     { "scripts/claude/exec-claude.sh",
-                                       "claude-3-5-sonnet-20241022",
-                                       "content[0].text",
-                                       "system.txt"
-                                     }
-          },
-          { CmdLineArgs::ollama,     { "scripts/ollama/exec-ollama.sh",
-                                       "llama3.3",
-                                       "message.content",
-                                       ""
-                                     }
-          },
-          { CmdLineArgs::openrouter, { "scripts/openrouter/exec-openrouter.sh",
-                                       "google/gemini-2.0-flash-exp:free",
-                                       "message.content",
-                                       ""
-                                     }
-          }
-        };
 
   static const CompilerFamilySetup compilerFamilySetup
       = { { CmdLineArgs::gcc,       {"-fopt-info-missed -c", "gcc"} },
           { CmdLineArgs::clang,     {"-Rpass-missed=. -c",   "clang"} }
         };
 
-  if (auto pos = modelSetup.find(args.configAI); pos != modelSetup.end())
-    settings = setupWithCurl(std::move(settings), args, pos->second);
+  if ((args.configAI != llmtools::LLMnone) && (args.configAI != llmtools::LLMerror))
+    settings.llmSettings = llmtools::configure(args.programPath, args.configAI, args.configModel);
   else
     trace(std::cerr, "Not (re)configuring AI. (Unknown or unspecified AI)");
 
@@ -747,12 +681,12 @@ addToMap(PlaceholderMap m, SourceRange rng)
 PlaceholderMap
 addToMap(PlaceholderMap m, const Settings& settings)
 {
-  m.emplace("invokeai",       settings.invokeai);
+  m.emplace("invokeai",       settings.llmSettings.invokeai);
   m.emplace("compiler",       settings.compiler);
   m.emplace("compilerfamily", settings.compilerfamily);
   m.emplace("compileflags",   settings.compileflags);
   m.emplace("optreport",      settings.optreport);
-  m.emplace("historyFile",    settings.historyFile);
+  m.emplace("historyFile",    settings.llmSettings.historyFile);
 /*
      << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
@@ -762,8 +696,8 @@ addToMap(PlaceholderMap m, const Settings& settings)
      << "\n  \"inputLang\":\""      << settings.inputLang << "\"" << ","
      << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
      << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
-     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
-     << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
+     << "\n  \"roleOfAI\":\""       << settings.llmSettings.roleOfAI << "\"" << ","
+     << "\n  \"systemTextFile\":\"" << settings.llmSettings.systemTextFile << "\"" << ","
      << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
      << "\n  \"successPrompt\":\""  << replace_nl(settings.successPrompt) << "\","
      << "\n  \"compFailPrompt\":\"" << replace_nl(settings.compFailPrompt) << "\","
@@ -1073,19 +1007,20 @@ compileResult(const Settings& settings, const CmdLineArgs& cmdline, GlobalVars& 
   return compileResult(settings, cmdline, globals, cmdline.all.back(), cmdline.kernel);
 }
 
+#if MOVED_TO_LLMTOOLS
 /// calls AI and returns result in response file
 void invokeAI(const Settings& settings, GlobalVars& globals)
 {
   MeasureRuntime timer(globals.aiTime);
 
-  trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
+  trace(std::cerr, "CallAI: ", settings.llmSettings.invokeai, '\n');
 
   std::vector<std::string> noargs;
   boost::asio::io_context  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boostprocess::child      ai( settings.invokeai,
+  boostprocess::child      ai( settings.llmSettings.invokeai,
                                boostprocess::args(noargs),
                                boostprocess::std_in.close(),
                                boostprocess::std_out > outstr,
@@ -1105,6 +1040,8 @@ void invokeAI(const Settings& settings, GlobalVars& globals)
 
   if (ec != 0) throw std::runtime_error{"AI invocation error."};
 }
+
+#endif /*MOVED_TO_LLMTOOLS*/
 
 /// returns nan for a given floating point type \p F.
 template <class F>
@@ -1338,45 +1275,24 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   // do not generate a prompt in this case
   if (settings.iterations == 0)
     return {};
-
-  json::array res;
-
-  if (settings.systemTextFile.empty())
-  {
-    json::object line;
-
-    line["role"]    = "system";
-    line["content"] = settings.systemText;
-
-    res.emplace_back(std::move(line));
-  }
-  else
-  {
-    std::ofstream ofs{settings.systemTextFile};
-
-    ofs << settings.systemText;
-  }
-
-  {
-    json::object   q;
-    long double    score = rev.result().score();
-    std::int64_t   iscore = score;
-    PlaceholderMap extras{ {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)},
-                           {"report", output},
-                           {"score",    std::to_string(score)},
-                           {"scoreint", std::to_string(iscore)}
-                         };
-
-    q["role"]    = "user";
-    q["content"] = expandText( settings.firstPrompt,
-                               args.vars,
-                               args.kernel,
-                               std::ref(settings),
-                               std::move(extras)
-                             );
-
-    res.emplace_back(std::move(q));
-  }
+        
+  json::value    res = createConversationHistory(settings.llmSettings, settings.systemText);
+  long double    score = rev.result().score();
+  std::int64_t   iscore = score;
+  PlaceholderMap extras{ {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)},
+                         {"report", output},
+                         {"score",    std::to_string(score)},
+                         {"scoreint", std::to_string(iscore)}
+                       };
+                       
+  res = llmtools::appendPrompt( std::move(res), 
+                                expandText( settings.firstPrompt,
+                                            args.vars,
+                                            args.kernel,
+                                            std::ref(settings),
+                                            std::move(extras)
+                                          )
+                              );
 
   return res;
 }
@@ -1395,28 +1311,7 @@ appendPrompt(json::value val, std::string prompt)
   return val;
 }
 
-/// appends a response \p response to a conversation history \p val.
-json::value
-appendResponse(const Settings& settings, json::value val, std::string response)
-{
-  json::array& res = val.as_array();
-  json::object line;
 
-  line["role"]    = settings.roleOfAI;
-  line["content"] = response;
-
-  res.emplace_back(std::move(line));
-  return val;
-}
-
-/// writes out conversation history to a file so it can be used for the
-///   next AI invocation.
-void storeQuery(const Settings& settings, const json::value& query)
-{
-  std::ofstream historyFile{settings.historyFile};
-
-  historyFile << query << std::endl;
-}
 
 /// parses JSON input from a line.
 json::value
@@ -1435,38 +1330,6 @@ parseJsonLine(std::string line)
   return p.release();
 }
 
-/// processes a JSON stream.
-json::value
-readJsonFile(std::istream& is)
-{
-  // adapted from the boost json documentation:
-  //   https://www.boost.org/doc/libs/1_85_0/libs/json/doc/html/json/input_output.html#json.input_output.parsing
-
-  boost::system::error_code  ec;
-  boost::json::stream_parser p;
-  std::string                line;
-
-  while (std::getline(is, line))
-  {
-    p.write(line, ec);
-
-    if (ec)
-    {
-      std::cerr << "ec = " << ec << std::endl;
-      throw std::runtime_error("unable to parse JSON file: " + line);
-    }
-  }
-
-  p.finish(ec);
-
-  if (ec)
-  {
-    std::cerr << "ec = " << ec << std::endl;
-    throw std::runtime_error("unable to finish parsing JSON file");
-  }
-
-  return p.release();
-}
 
 
 /// generates a unique new filename by appending a number at the end.
@@ -1655,109 +1518,8 @@ storeGeneratedFile( const Settings& settings,
   return { newFile, { cmdline.kernel.beg(), newlim } };
 }
 
-/// returns the content of stream \p is as string.
-std::string
-readTxtFile(std::istream& is)
-{
-  // adapted from the boost json documentation:
-  //   https://www.boost.org/doc/libs/1_85_0/libs/json/doc/html/json/input_output.html#json.input_output.parsing
 
-  std::string line;
-  std::string res;
 
-  while (std::getline(is, line))
-  {
-    if (res.size())
-    {
-      res.reserve(res.size() + line.size() + 1);
-      res.append("\n").append(line);
-    }
-    else
-    {
-      res = std::move(line);
-    }
-  }
-
-  return res;
-}
-
-/// extracts a json string with a known path from a json value.
-std::string jsonField(const json::value& val, std::string_view fld)
-{
-  //~ trace(std::cerr, '{', val, '}', "\n'", fld, '\n');
-
-  if (fld.empty())
-  {
-    const json::string& content = val.as_string();
-    std::string_view    contView(content.begin(), content.size());
-
-    return std::string{contView};
-  }
-
-  if (fld[0] == '.')
-    return jsonField(val, fld.substr(1));
-
-  if (fld[0] == '[')
-  {
-    // must be an array index
-    const std::size_t   lim = fld.find_first_of("]");
-    assert((lim > 0) && (lim != std::string_view::npos));
-
-    std::string_view    idx = fld.substr(1, lim-1);
-    const json::array&  arr = val.as_array();
-    int                 num = 0;
-    auto                [ptr, ec] = std::from_chars(idx.data(), idx.data() + idx.size(), num);
-
-    //~ trace(std::cerr, "i'", idx, " ", lim, '\n');
-
-    if (ec != std::errc{})
-      throw std::runtime_error{"Not a valid json array index (int expected)"};
-
-    return jsonField(arr.at(num), fld.substr(lim+1));
-  }
-
-  const std::size_t pos = fld.find_first_of(".[");
-
-  if (pos == std::string_view::npos)
-  {
-    const json::object& obj = val.as_object();
-
-    return jsonField(obj.at(fld), std::string_view{});
-  }
-
-  assert(pos != 0);
-  const json::object& obj = val.as_object();
-  std::string_view    lhs = fld.substr(0, pos);
-
-  return jsonField(obj.at(lhs), fld.substr(pos));
-}
-
-/// loads the AI response from a JSON object
-std::string loadAIResponseJson(const Settings& settings)
-{
-  std::ifstream responseFile{settings.responseFile};
-
-  return jsonField(readJsonFile(responseFile), settings.responseField);
-}
-
-/// loads the AI response from a text file
-std::string loadAIResponseTxt(const Settings& settings)
-{
-  std::ifstream responseFile{settings.responseFile};
-
-  return readTxtFile(responseFile);
-}
-
-/// loads the AI response
-std::string loadAIResponse(const Settings& settings)
-{
-  const std::string jsonSuffix{".JSON"};
-
-  if (boost::iends_with(settings.responseFile, jsonSuffix))
-    return loadAIResponseJson(settings);
-
-  return loadAIResponseTxt(settings);
-}
 
 /// queries a string field from a JSON object.
 std::string_view
@@ -1864,7 +1626,7 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
 
   os << "{"
      << fieldDoc(genDoc, "invokeai-doc", invokeaiDoc)
-     << "\n  \"invokeai\":\""       << settings.invokeai << "\","
+     << "\n  \"invokeai\":\""       << settings.llmSettings.invokeai << "\","
      << fieldDoc(genDoc, "compiler-doc", compilerDoc)
      << "\n  \"compiler\":\""       << settings.compiler << "\","
      << fieldDoc(genDoc, "compileflags-doc", compileflagsDoc)
@@ -1876,11 +1638,11 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << fieldDoc(genDoc, "leanOptReport-doc", leanOptReportDoc)
      << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
      << fieldDoc(genDoc, "historyFile-doc", historyFileDoc)
-     << "\n  \"historyFile\":\""    << settings.historyFile << "\","
+     << "\n  \"historyFile\":\""    << settings.llmSettings.historyFile << "\","
      << fieldDoc(genDoc, "responseFile-doc", responseFileDoc)
-     << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
+     << "\n  \"responseFile\":\""   << settings.llmSettings.responseFile << "\"" << ","
      << fieldDoc(genDoc, "responseField-doc", responseFieldDoc)
-     << "\n  \"responseField\":\""  << settings.responseField << "\"" << ","
+     << "\n  \"responseField\":\""  << settings.llmSettings.responseField << "\"" << ","
      << fieldDoc(genDoc, "testScript-doc", testScriptDoc)
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
      << fieldDoc(genDoc, "testRuns-doc", testRunsDoc)
@@ -1896,9 +1658,9 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << fieldDoc(genDoc, "systemText-doc", systemTextDoc)
      << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
      << fieldDoc(genDoc, "systemTextFile-doc", systemTextFileDoc)
-     << "\n  \"systemTextFile\":\"" << settings.systemTextFile << "\"" << ","
+     << "\n  \"systemTextFile\":\"" << settings.llmSettings.systemTextFile << "\"" << ","
      << fieldDoc(genDoc, "roleOfAI-doc", roleOfAIDoc)
-     << "\n  \"roleOfAI\":\""       << settings.roleOfAI << "\"" << ","
+     << "\n  \"roleOfAI\":\""       << settings.llmSettings.roleOfAI << "\"" << ","
      << fieldDoc(genDoc, "firstPrompt-doc", firstPromptDoc)
      << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
      << fieldDoc(genDoc, "successPrompt-doc", successPromptDoc)
@@ -1955,20 +1717,23 @@ Settings readSettings(const std::string& configFileName)
 
   try
   {
-    json::value   cnf    = readJsonFile(configFile);
+    json::value   cnf    = llmtools::readJsonStream(configFile);
     json::object& cnfobj = cnf.as_object();
     Settings      config;
 
     configVersionCheck(cnfobj);
 
-    config.invokeai       = loadField(cnfobj, "invokeai",        config.invokeai);
+    config.llmSettings.invokeai       = loadField(cnfobj, "invokeai",        config.llmSettings.invokeai);
+    config.llmSettings.responseFile   = loadField(cnfobj, "responseFile",    config.llmSettings.responseFile);
+    config.llmSettings.responseField  = loadField(cnfobj, "responseField",   config.llmSettings.responseField);
+    config.llmSettings.systemTextFile = loadField(cnfobj, "systemTextFile",  config.llmSettings.systemTextFile);
+    config.llmSettings.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.llmSettings.roleOfAI);
+    config.llmSettings.historyFile    = loadField(cnfobj, "historyFile",     config.llmSettings.historyFile);
+
     config.compiler       = loadField(cnfobj, "compiler",        config.compiler);
     config.compileflags   = loadField(cnfobj, "compileflags",    config.compileflags);
     config.compilerfamily = loadField(cnfobj, "compilerfamily",  config.compilerfamily);
     config.optreport      = loadField(cnfobj, "optreport",       config.optreport);
-    config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
-    config.responseFile   = loadField(cnfobj, "responseFile",    config.responseFile);
-    config.responseField  = loadField(cnfobj, "responseField",   config.responseField);
     config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
     config.testRuns       = loadField(cnfobj, "testRuns",        config.testRuns);
     config.testOutliers   = loadField(cnfobj, "testOutliers",    config.testOutliers);
@@ -1976,8 +1741,6 @@ Settings readSettings(const std::string& configFileName)
     config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
     config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
     config.systemText     = loadField(cnfobj, "systemText",      config.systemText);
-    config.systemTextFile = loadField(cnfobj, "systemTextFile",  config.systemTextFile);
-    config.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.roleOfAI);
     config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
     config.leanOptReport  = loadField(cnfobj, "leanOptReport",   config.leanOptReport);
     config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
@@ -2022,7 +1785,7 @@ void createConfigFile(CmdLineArgs args)
     return;
   }
 
-  if (args.configAI == CmdLineArgs::noai)
+  if (args.configAI == llmtools::LLMnone)
   {
     std::cerr << "Unspecified AI component."
               << std::endl;
@@ -2032,7 +1795,7 @@ void createConfigFile(CmdLineArgs args)
       std::cerr << "** Using default model: OpenAI/gpt-4o **"
                 <<  std::endl;
 
-      args.configAI = CmdLineArgs::gpt4;
+      args.configAI = llmtools::openai;
     }
   }
 
@@ -2103,22 +1866,22 @@ struct CmdLineProc
     return CmdLineArgs::nocomp;
   }
 
-  CmdLineArgs::AI
+  llmtools::LLMProvider
   parseAI(std::string_view m)
   {
-    using ModelNames = std::unordered_map<std::string_view, CmdLineArgs::AI>;
+    using ModelNames = std::unordered_map<std::string_view, llmtools::LLMProvider>;
 
-    static const ModelNames modelNames = { { "gpt4",       CmdLineArgs::gpt4 },
-                                           { "openai",     CmdLineArgs::gpt4 },
-                                           { "claude",     CmdLineArgs::claude },
-                                           { "ollama",     CmdLineArgs::ollama },
-                                           { "openrouter", CmdLineArgs::openrouter }
+    static const ModelNames modelNames = { { "gpt4",       llmtools::openai },
+                                           { "openai",     llmtools::openai },
+                                           { "claude",     llmtools::claude },
+                                           { "ollama",     llmtools::ollama },
+                                           { "openrouter", llmtools::openrouter }
                                          };
 
     if (auto pos = modelNames.find(m); pos != modelNames.end())
       return pos->second;
 
-    return CmdLineArgs::errai;
+    return llmtools::LLMerror;
   }
 
   std::tuple<std::size_t, std::string_view>
@@ -2363,16 +2126,15 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                     bool lastIteration
                   )
 {
-  storeQuery(settings, query);
-  invokeAI(settings, globals);
-
-  std::string response = loadAIResponse(settings);
-
-  query = appendResponse(settings, std::move(query), response);
-
+  {
+    MeasureRuntime aiTime{globals.aiTime};
+    
+    query = llmtools::queryResponse(settings.llmSettings, std::move(query));
+  }
+  
   try
   {
-    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, response);
+    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, llmtools::lastEntry(query));
     CompilationResult compres         = compileResult(settings, cmdlnargs, globals, newFile, kernelrange);
 
     if (compres.success())
@@ -2493,7 +2255,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
   std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs, globals) };
   json::value           query    = initialPrompt( settings,
                                                   cmdlnargs,
-                                                  std::move(compres.output()),
+                                                  compres.output(),
                                                   variants.back()
                                                 );
 
@@ -2593,7 +2355,7 @@ int main(int argc, char** argv)
   // prepare final report
 
   // store query and results for review
-  storeQuery(settings, conversationHistory);
+  llmtools::storeQuery(settings.llmSettings, conversationHistory);
 
   // \todo go over results and rank them based on success and results
   reportResults<ResultPrinter>(std::cout, revisions);
