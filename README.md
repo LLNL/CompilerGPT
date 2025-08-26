@@ -12,6 +12,21 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
 
 The `llmtools` branch contains a C++ library that factors out basic elements of interacting with LLMs. This library provides a clean interface for creating conversation histories, appending prompts, querying LLMs, and processing responses. A test driver (`test-llmtools.bin`) demonstrates simple usage of the library.
 
+### Robustness
+
+The current implementation uses a fail-fast approach when handling malformed LLM responses:
+- If the response is invalid JSON, the parser throws an exception and the application terminates
+- If the JSON is valid but the expected response field is missing, it throws a `boost::system::system_error`
+- The logging system captures these exceptions to aid in diagnosis
+
+Future improvements could include:
+- Schema validation before accessing JSON fields
+- Graceful degradation (marking responses as invalid while continuing execution)
+- Retry mechanisms with back-off for HTTP 5xx errors
+- Size and content validation guards
+
+For more information on when to use this library compared to other C++ interfaces for LLMs, see [LLMTools Usage Guidelines](docs/llmtools-guidelines.md).
+
 ---
 
 ## Badges
