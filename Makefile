@@ -16,7 +16,7 @@ SOURCES  := $(BINARY:.bin=.cc)
 OBJECTS  := $(SOURCES:.cc=.o)
 
 INCLUDES   ?= -I$(BOOST_HOME)/include -I./include
-#~ BOOSTLIBS  ?= -L$(BOOST_HOME)/lib -lboost_filesystem # -lboost_system -lboost_thread
+BOOSTLIBS  ?= -L$(BOOST_HOME)/lib -lboost_program_options -lboost_filesystem
 CXXVERSION ?= -std=c++20
 WARNFLAG   ?= -Wall -Wextra -pedantic
 OPTFLAG    ?= -O3
@@ -33,10 +33,6 @@ default: $(BINARIES)
 
 %.o: src/%.cc $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DLLFLAG) -o $@ -c $<
-	
-llmtools.o: src/llmtools.cc $(HEADERS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DLLFLAG) -o $@ -c $<	
-	
 
 libllmtools.a: llmtools.o
 	ar -r $@ $<
@@ -59,4 +55,3 @@ clean:
 .phony: pure
 pure: clean
 	rm -rf *.bin *.a query.json response.txt
-

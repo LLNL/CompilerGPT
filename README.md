@@ -8,6 +8,10 @@ CompilerGPT iterates with the LLM a given number of times and reports on the obt
 
 CompilerGPT calls AI modules through scripts which makes it flexible to use with different frameworks. Most connections are based on CURL. A legacy configuration for OpenAI's Python framework also exists. CompilerGPT's auto-configuration currently supports OpenAI, Anthropic, openrouter, and ollama.
 
+## LLMTools Library
+
+The `llmtools` branch contains a C++ library that factors out basic elements of interacting with LLMs. This library provides a clean interface for creating conversation histories, appending prompts, querying LLMs, and processing responses. A test driver (`test-llmtools.bin`) demonstrates simple usage of the library.
+
 ---
 
 ## Badges
@@ -25,6 +29,18 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
   - Boost header only (boost > 1.78 such as 1.85, 1.87). Required libraries include algorithm, asio, json, process
 - curl
 - Python 3 (for prettyjson.py)
+
+#### LLMTools Library Requirements
+
+The `llmtools` library has the following dependencies:
+- C++ compiler supporting C++14 (for ROSE compatibility)
+- Boost libraries:
+  - Boost.JSON
+  - Boost.Filesystem
+  - Boost.Process
+  - Boost.Asio
+  - Boost.Utility (for string_view)
+  - Boost.Lexical_Cast
 
 #### Installing Dependencies
 
@@ -54,6 +70,9 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
   _Usage: `./prettyjson.bin input.json`_
 - **prettyjson.py**: Pretty-prints JSON files (Python version).  
   _Usage: `python3 src/prettyjson.py input.json`_
+- **test-llmtools.bin**: Test driver for the LLMTools library.  
+  _Usage: `./test-llmtools.bin [--log=<file>] [--model=<model>]`_  
+  _Build with: `make CXXVERSION=-std=c++14 test-llmtools.bin`_
 
 ---
 
@@ -121,6 +140,81 @@ Set the BOOST_HOME environment variable to your Boost installation directory and
 
     export BOOST_HOME="/path/to/boost/install/dir"
     make # builds all binaries (`compgpt.bin`, `logfilter.bin`, `prettyjson.bin`).
+
+### Building LLMTools
+
+To build the LLMTools library and test driver:
+
+    make CXXVERSION=-std=c++14 test-llmtools.bin
+
+This explicitly sets the C++14 standard to ensure compatibility with ROSE.
+
+### Using LLMTools
+
+Before running the test driver, you need to set the LLMTOOLS_PATH environment variable to point to the CompilerGPT repository:
+
+    export LLMTOOLS_PATH=/path/to/CompilerGPT/
+
+You also need to have your OpenAI API key set in the environment:
+
+    export OPENAI_API_KEY=your_api_key_here
+
+To run the test driver:
+
+    ./test-llmtools.bin
+
+This will query the OpenAI API with a simple code optimization prompt and display the result:
+
+```
+The default model for OpenAI is gpt-4o
+
+AI response:
+To optimize the given code snippet, you can use the multiplication operator to achieve the same result more efficiently. Instead of adding `x` to itself multiple times, you can multiply `x` by 4:
+
+```cpp
+x = x * 4;
+```
+
+This change reduces the number of operations and makes the code more concise and clear.
+```
+
+#### Command Line Options
+
+The test driver supports several command line options:
+
+- `--help`: Display help message
+- `--log=<file>`: Enable logging to the specified file
+- `--model=<model>`: Specify a different model than the default (gpt-4o)
+
+Example with logging enabled:
+
+    ./test-llmtools.bin --log=llmtools.log
+
+This will create a log file with detailed information about the execution:
+
+```
+[Tue Aug 26 16:13:54 2025] Logging started
+[Tue Aug 26 16:13:54 2025] LLMTOOLS_PATH: /Users/liao6/workspace/CompilerGPT/
+[Tue Aug 26 16:13:54 2025] Default model for OpenAI: gpt-4o
+[Tue Aug 26 16:13:54 2025] Configuring llmtools with path: /Users/liao6/workspace/CompilerGPT/
+[Tue Aug 26 16:13:54 2025] Configuration complete
+[Tue Aug 26 16:13:54 2025] System prompt: You are an expert programmer and skilled in C++ program optimization
+[Tue Aug 26 16:13:54 2025] Creating conversation history
+[Tue Aug 26 16:13:54 2025] Conversation history created
+[Tue Aug 26 16:13:54 2025] User prompt: Optimize the following code snippet: ```cpp x = x + x + x + x;''' where x is of type int.
+[Tue Aug 26 16:13:54 2025] Appending prompt to conversation history
+[Tue Aug 26 16:13:54 2025] Prompt appended
+[Tue Aug 26 16:13:54 2025] Querying LLM for response
+[Tue Aug 26 16:13:59 2025] Response received
+[Tue Aug 26 16:13:59 2025] AI response: To optimize the given code snippet...
+[Tue Aug 26 16:13:59 2025] Execution completed successfully
+```
+
+#### Known Issues with LLMTools
+
+1. **JSON Library**: The library uses Boost.JSON instead of nlohman's JSON library. This is not expected to be an issue even though ROSE prefers nlohman.
+
+2. **Concurrent Queries**: The library does not support concurrent queries from the same working directory because files with the same names could be overwritten.
 
 ### Running CompilerGPT
 
