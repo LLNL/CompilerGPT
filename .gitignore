@@ -1,2 +1,5 @@
 *.bin
+*.o
+*.a
+*.json
 .vscode
