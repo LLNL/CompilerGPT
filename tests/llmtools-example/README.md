@@ -53,7 +53,7 @@ Querying LLM for optimization advice...
 Optimized code suggestion:
 To optimize the given matrix multiplication function for better cache locality, you can employ a technique called "loop tiling" or "loop blocking." This technique breaks down the matrices into smaller blocks or tiles that fit better into the cache. By doing so, you increase data reuse and reduce the number of cache misses. Here's how you can apply loop tiling to your matrix multiplication function:
 
-```cpp
+
 #include <algorithm>
 
 // This example assumes n is a multiple of BLOCK_SIZE for simplicity.
@@ -84,7 +84,6 @@ void matrix_multiply(double* A, double* B, double* C, int n) {
         }
     }
 }
-```
 
 ### Key Points:
 
@@ -111,3 +110,4 @@ To clean up generated files:
 
 ```bash
 make clean
+```
