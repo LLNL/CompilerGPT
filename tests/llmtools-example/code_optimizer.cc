@@ -16,6 +16,10 @@ int main() {
     // Configure for OpenAI
     llmtools::Settings config = llmtools::configure(LLMTOOLS_PATH, llmtools::openai, "gpt-4o");
     
+    // Or use ollama, gemma3
+    //llmtools::Settings config = llmtools::configure(LLMTOOLS_PATH, llmtools::ollama, "gemma3");
+    
+
     // Create conversation with system prompt
     boost::json::value conversation = llmtools::createConversationHistory(
         config,
