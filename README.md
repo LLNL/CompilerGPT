@@ -110,6 +110,7 @@ To add a new LLM provider, create a new subdirectory in `scripts/` and add an `e
 
 - Test suites are in `tests/`, with subdirectories for different benchmarks.
 - `humaneval/` contains paired `*_declaration.cc` and `*_test.cc` files.
+- `llmtools-example/` contains a minimal example of using the LLMTools library to create a code optimization assistant. See [its README](tests/llmtools-example/README.md) for details.
 - Other suites: `matmul-1/`, `matmul-2/`, `matmul-3/`, `nas-benchmarks/`, `omp-prefixsum/`, `simple/`, `smith-waterman/`, `translation-dafny-ada/`, `translation-dafny-cpp/`, etc.
 
 ### Running Tests
