@@ -11,6 +11,7 @@
   - `--model=<model>`: Specify a different model than the default (gpt-4o)
 - Exception handling to capture and log errors
 - Detailed documentation in README.md for the llmtools library
+- Minimal example in tests/llmtools-example/ showing how to use the LLMTools library to create a code optimization assistant
 
 ### Changed
 - Updated Makefile to properly link with Boost libraries (program_options and filesystem)
