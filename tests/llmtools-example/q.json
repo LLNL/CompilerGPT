@@ -1,5 +1,0 @@
-{
-  "model": "gpt-4o",
-  "stream": false,
-  "messages": [{"role":"user","content":"Please optimize this matrix multiplication function for better cache locality:\n\n```cpp\n\n    void matrix_multiply(double* A, double* B, double* C, int n) {\n        for (int i = 0; i < n; i++) {\n            for (int j = 0; j < n; j++) {\n                C[i*n + j] = 0;\n                for (int k = 0; k < n; k++) {\n                    C[i*n + j] += A[i*n + k] * B[k*n + j];\n                }\n            }\n        }\n    }\n    \n```"}]
-}
