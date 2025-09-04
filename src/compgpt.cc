@@ -239,7 +239,7 @@ struct Settings
 {
   llmtools::Settings llmSettings;
 
-#if BEFORE_LLMTOOLS  
+#if BEFORE_LLMTOOLS
   std::string  invokeai       = "/path/to/ai/invocation";
   std::string  historyFile    = "query.json";
   std::string  responseFile   = "response.txt";
@@ -1007,42 +1007,6 @@ compileResult(const Settings& settings, const CmdLineArgs& cmdline, GlobalVars& 
   return compileResult(settings, cmdline, globals, cmdline.all.back(), cmdline.kernel);
 }
 
-#if MOVED_TO_LLMTOOLS
-/// calls AI and returns result in response file
-void invokeAI(const Settings& settings, GlobalVars& globals)
-{
-  MeasureRuntime timer(globals.aiTime);
-
-  trace(std::cerr, "CallAI: ", settings.llmSettings.invokeai, '\n');
-
-  std::vector<std::string> noargs;
-  boost::asio::io_context  ios;
-  std::future<std::string> outstr;
-  std::future<std::string> errstr;
-  std::future<int>         exitCode;
-  boostprocess::child      ai( settings.llmSettings.invokeai,
-                               boostprocess::args(noargs),
-                               boostprocess::std_in.close(),
-                               boostprocess::std_out > outstr,
-                               boostprocess::std_err > errstr,
-                               boostprocess::on_exit = exitCode,
-                               ios
-                             );
-
-  ios.run();
-
-  std::cout << outstr.get() << std::endl;
-  std::cerr << errstr.get() << std::endl;
-
-  const int  ec      = exitCode.get();
-
-  trace(std::cerr, "CallAI - exitcode: ", ec, '\n');
-
-  if (ec != 0) throw std::runtime_error{"AI invocation error."};
-}
-
-#endif /*MOVED_TO_LLMTOOLS*/
-
 /// returns nan for a given floating point type \p F.
 template <class F>
 F nanValue() { return std::numeric_limits<F>::quiet_NaN(); }
@@ -1275,7 +1239,7 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   // do not generate a prompt in this case
   if (settings.iterations == 0)
     return {};
-        
+
   json::value    res = createConversationHistory(settings.llmSettings, settings.systemText);
   long double    score = rev.result().score();
   std::int64_t   iscore = score;
@@ -1284,8 +1248,8 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
                          {"score",    std::to_string(score)},
                          {"scoreint", std::to_string(iscore)}
                        };
-                       
-  res = llmtools::appendPrompt( std::move(res), 
+
+  res = llmtools::appendPrompt( std::move(res),
                                 expandText( settings.firstPrompt,
                                             args.vars,
                                             args.kernel,
@@ -2128,10 +2092,10 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 {
   {
     MeasureRuntime aiTime{globals.aiTime};
-    
+
     query = llmtools::queryResponse(settings.llmSettings, std::move(query));
   }
-  
+
   try
   {
     const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, llmtools::lastEntry(query));
