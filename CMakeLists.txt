@@ -67,10 +67,12 @@ set(BOOST_INCLUDE_DIR
   ${source_dir}/libs/function/include
   ${source_dir}/libs/functional/include
   ${source_dir}/libs/fusion/include
+  ${source_dir}/libs/integer/include
   ${source_dir}/libs/intrusive/include
   ${source_dir}/libs/io/include
   ${source_dir}/libs/iterator/include
   ${source_dir}/libs/json/include
+  ${source_dir}/libs/lexical_cast/include
   ${source_dir}/libs/move/include
   ${source_dir}/libs/mp11/include
   ${source_dir}/libs/mpl/include
@@ -93,6 +95,17 @@ set(BOOST_INCLUDE_DIR
 )
 
 
+
+##
+## Target: libllmtools.a
+
+add_library(llmtools STATIC src/llmtools.cc)
+
+target_include_directories(llmtools PRIVATE ${BOOST_INCLUDE_DIR})
+
+add_dependencies(llmtools boost_external)
+
+
 ##
 ## Target: compgpt.bin
 
@@ -102,6 +115,7 @@ add_executable(compgpt.bin src/compgpt.cc)
 # Set include directories including Boost headers
 target_include_directories(compgpt.bin PRIVATE ${BOOST_INCLUDE_DIR})
 target_link_libraries(compgpt.bin PRIVATE Threads::Threads)
+target_link_libraries(compgpt.bin PRIVATE llmtools)
 
 # Make sure Boost is downloaded before building the executable
 add_dependencies(compgpt.bin boost_external)
@@ -124,6 +138,8 @@ add_dependencies(logfilter.bin boost_external)
 
 # Add executable using the source file from dependencies
 add_executable(prettyjson.bin src/logfilter.cc)
+
+target_link_libraries(prettyjson.bin PRIVATE llmtools)
 
 # Set include directories including Boost headers
 target_include_directories(prettyjson.bin PRIVATE ${BOOST_INCLUDE_DIR})
