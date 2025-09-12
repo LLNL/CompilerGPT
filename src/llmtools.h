@@ -1,5 +1,19 @@
+// LLMTools library
+//   - common API for interacting with large language models
+//   - tools for prompt generation, such as embedding and extracting
+//     source code.
+//
+// Copyright (c) 2025, Lawrence Livermore National Security, LLC.
+// All rights reserved.  LLNL-CODE-2000601
+//
+// License: SPDX BSD 3-Clause "New" or "Revised" License
+//          see LICENSE file for details
+//
+// Authors: pirkelbauer2,liao6 (at) llnl.gov
+
 #include <string>
 #include <fstream>
+
 #include <boost/json.hpp>
 
 namespace llmtools
@@ -7,13 +21,13 @@ namespace llmtools
   /// a list of supported LLM providers
   enum LLMProvider
   {
-    openai=0,     // openai web interface
-    claude=1,     // anthropic web interface
-    ollama=2,     // ollama localhost web interface
-    openrouter=3, // openrouter web interface
-    llamaCli=4,   // local llama-cli interface
-    LLMnone=5,
-    LLMerror=6
+    openai=0,        // openai web interface
+    claude=1,        // anthropic web interface
+    ollama=2,        // ollama localhost web interface
+    openrouter=3,    // openrouter web interface
+    llamaCli=4,      // local llama-cli interface
+    LLMnone=5,       // user defines settings
+    LLMerror=6       // error flag
   };
 
   /// LLM settings
@@ -30,7 +44,7 @@ namespace llmtools
 
   LLMProvider provider(const std::string& providerName);
 
-  /// stores the \p conversationHistory into the historyfile
+  /// stores the \p conversationHistory into the \p historyfile
   void storeQuery(const std::string& historyfile, const boost::json::value& conversationHistory);
 
   /// stores the \p conversationHistory into the historyfile as specified in \p settings
@@ -70,4 +84,103 @@ namespace llmtools
   /// gets the last response from the \p conversationHistory
   std::string
   lastEntry(const boost::json::value& conversationHistory);
+
+  //
+  // support text manipulation for prompt.
+
+  /// a map from variable-names to text
+  using VariableMap = std::unordered_map<std::string, std::string>;
+
+  /// replaces variables in \p raprompt with values defined in \p vars.
+  std::string
+  expandPrompt(const std::string& rawprompt, const VariableMap& vars);
+
+  /// a source code location
+  using SourcePointBase = std::tuple<std::size_t, std::size_t>;
+  struct SourcePoint : SourcePointBase
+  {
+    using base = SourcePointBase;
+    using base::base;
+
+    std::size_t line() const { return std::get<0>(*this); }
+    std::size_t col()  const { return std::get<1>(*this); }
+
+    static
+    SourcePoint origin();
+
+    static
+    SourcePoint eof();
+  };
+
+  std::ostream&
+  operator<<(std::ostream& os, SourcePoint p);
+
+  /// a source code range
+  using SourceRangeBase = std::tuple<SourcePoint, SourcePoint>;
+  struct SourceRange : SourceRangeBase
+  {
+    using base = SourceRangeBase;
+    using base::base;
+
+    SourcePoint beg() const { return std::get<0>(*this); }
+    SourcePoint lim() const { return std::get<1>(*this); }
+
+    bool entireFile() const;
+  };
+
+  std::ostream&
+  operator<<(std::ostream& os, SourceRange p);
+
+  using CodeSectionBase = std::tuple<std::string, std::string>;
+
+  struct CodeSection : CodeSectionBase
+  {
+    using base = CodeSectionBase;
+    using base::base;
+
+    /// the language marker; returns an empty string if it was not present
+    const std::string& languageMarker() const { return std::get<0>(*this); }
+
+    /// returns the code.
+    const std::string& code()           const { return std::get<1>(*this); }
+  };
+
+  /// loads a file from an input stream \p is and replaces the section described by the source range \p sourceRange
+  ///   with a the code in the code section object \p codesec and writes the result to stream \p os.
+  ///   The function returns the source range of codesec in the output.
+  /// \param os the output stream receiving the new code
+  /// \param is the input stream containing the original code
+  /// \param sourceRange the source range in the original code that needs to be replaced
+  /// \param codesec the new code for the described code section.
+  /// \result returns the range of \p codesec in the generated code.
+  SourceRange
+  replaceSourceSection(std::ostream& os, std::istream& is, SourceRange sourceRange, const CodeSection& codesec);
+
+  /// returns a list of code sections found in \p markdownText
+  /// \param  markdownText a string in markdown format that may contain code sections
+  /// \result a list of code sections
+  /// \details
+  ///    in a markdown text, code sections appear between ``` and ```.
+  ///    optionally, the begin marker specifies the language in which the
+  ///    code section is in. e.g., ```cpp for C++, ```ada for Ada, or ```bash for bash scripts.
+  ///    This function reads through a markdown text and generates a CodeSection object
+  ///    for each section found.
+  std::vector<CodeSection>
+  extractCodeSections(const std::string& markdownText);
+
+  /// reads file denoted by \p srcfile and extract the range described by \p rng into a markdown
+  ///   codeblock. The codeblock uses \p langmarker as the language marker.
+  std::string
+  fileToMarkdown(const std::string& langmarker, const std::string& srcfile, SourceRange rng);
+
+  /// reads stream \p srcstream and extract the range described by \p rng into a markdown
+  ///   codeblock. The codeblock uses \p langmarker as the language marker.
+  std::string
+  fileToMarkdown(const std::string& langmarker, std::istream& srcstream, SourceRange rng);
+
+  /// prints the code from \p code to the stream \p os while unescaping
+  ///   escaped characters.
+  /// \return the number of lines printed.
+  std::size_t
+  printUnescaped(std::ostream& os, const std::string& srccode);
 }

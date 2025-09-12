@@ -39,17 +39,20 @@ libllmtools.a: llmtools.o
 compgpt.bin: compgpt.o libllmtools.a
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
 
+prettyjson.bin: prettyjson.o libllmtools.a
+	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
+
 test-llmtools.bin: test-llmtools.o libllmtools.a
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
 
 %.bin: %.o
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
-	
-	
+
+
 
 .phony: clean
 clean:
-	rm -rf *.o 
+	rm -rf *.o
 
 .phony: pure
 pure: clean

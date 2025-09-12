@@ -34,6 +34,9 @@ using StringView = boost::string_view;
 
 namespace /*anonymous*/
 {
+  const std::string CC_MARKER_BEGIN = "```";
+  const std::string CC_MARKER_LIMIT = "```";
+
   using LLMSetupBase = std::tuple<const char*, const char*, const char*, const char*, const char*, const char*, const char*>;
   struct LLMSetup : LLMSetupBase
   {
@@ -393,6 +396,50 @@ std::ostream& operator<<(std::ostream& os, CommandR comr)
 }
 
 
+using PromptVariableBase = std::tuple<std::size_t, std::string>;
+
+/// encapsulates any text placeholder that gets substituted with
+///   programmatic information (reports, source code).
+struct PromptVariable : PromptVariableBase
+{
+  using base = PromptVariableBase;
+  using base::base;
+
+  std::size_t      offsetInString() const { return std::get<0>(*this); }
+  std::string_view token()          const { return std::get<1>(*this); }
+};
+
+
+PromptVariable
+nextVariable(std::string_view prompt, const llmtools::VariableMap& m)
+{
+  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
+  {
+    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
+    {
+      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
+
+      if (m.find(std::string(cand)) != m.end())
+        return PromptVariable{pos, cand};
+    }
+  }
+
+  return PromptVariable{prompt.size(), ""};
+}
+
+std::vector<std::string>
+readSourceFromStream(std::istream& is)
+{
+  std::vector<std::string> res;
+  std::string line;
+
+  while (std::getline(is, line))
+    res.push_back(line);
+
+  return res;
+}
+
+
 }
 
 
@@ -578,6 +625,261 @@ LLMProvider provider(const std::string& providerName)
 
   return LLMerror;
 }
+
+
+/// replaces known placeholders with their text
+std::string
+expandPrompt(const std::string& rawprompt, const VariableMap& m)
+{
+  std::stringstream txt;
+  std::string_view  prompt = rawprompt;
+  PromptVariable    var    = nextVariable(prompt, m);
+
+  while (var.token().size() != 0)
+  {
+    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
+
+    txt << prompt.substr(0, var.offsetInString())
+        << m.at(std::string(var.token()));
+
+    prompt.remove_prefix(prefixlen);
+    var = nextVariable(prompt, m);
+  }
+
+  txt << prompt;
+  return txt.str();
+}
+
+
+// static
+SourcePoint
+SourcePoint::origin()
+{
+  return { 0, 0 };
+}
+
+// static
+SourcePoint
+SourcePoint::eof()
+{
+  return { std::numeric_limits<std::size_t>::max(),
+           std::numeric_limits<std::size_t>::max()
+         };
+}
+
+std::ostream&
+operator<<(std::ostream& os, SourcePoint p)
+{
+  if (p == SourcePoint::origin())
+    return os << "\u03b1";
+
+  if (p == SourcePoint::eof())
+    return os << "\u03a9";
+
+  return os << p.line() << ":" << p.col();
+}
+
+bool SourceRange::entireFile() const
+{
+  return (  (beg() == SourcePoint::origin())
+         && (lim() == SourcePoint::eof())
+         );
+}
+
+std::ostream&
+operator<<(std::ostream& os, SourceRange p)
+{
+  return os << p.beg() << "-" << p.lim();
+}
+
+/// loads the specified subsection of a code into a string.
+std::string
+fileToMarkdown(const std::string& langmarker, std::istream& src, SourceRange rng)
+{
+  std::stringstream txt;
+
+  txt << CC_MARKER_BEGIN << langmarker
+      << "\n";
+
+  std::string       line;
+  std::size_t const begLine = rng.beg().line();
+  std::size_t const limLine = rng.lim().line();
+  std::size_t       linectr = 1; // source code starts at line 1
+
+  // skip beginning lines
+  while ((linectr < begLine) && std::getline(src, line)) ++linectr;
+
+  // copy code segment
+  while ((linectr < limLine) && std::getline(src, line))
+  {
+    ++linectr;
+    txt << line << "\n";
+  }
+
+  txt << CC_MARKER_LIMIT << '\n';
+  return txt.str();
+}
+
+std::string
+fileToMarkdown(const std::string& langmarker, const std::string& filename, SourceRange rng)
+{
+  std::ifstream src{std::string(filename)};
+
+  return fileToMarkdown(langmarker, src, rng);
+}
+
+
+std::vector<CodeSection>
+extractCodeSections(const std::string& markdownText)
+{
+  std::vector<CodeSection> res;
+  StringView               text = markdownText;
+
+  while (true)
+  {
+    // Find the opening ```
+    const std::size_t secbeg = text.find(CC_MARKER_BEGIN);
+    if (secbeg == std::string::npos)
+      break;
+
+    // Find the end of the opening line (could have language marker)
+    const std::size_t postmarker = secbeg + CC_MARKER_BEGIN.size();
+    const std::size_t eoLine = text.find('\n', postmarker);
+    if (eoLine == std::string::npos)
+      break;
+
+    // Extract language marker (if any)
+    StringView        languageMarker = text.substr(postmarker, eoLine - postmarker);
+
+    // Remove leading/trailing whitespace
+    languageMarker.remove_prefix(languageMarker.find_first_not_of(" \t\r"));
+    languageMarker.remove_suffix(languageMarker.size() - languageMarker.find_last_not_of(" \t\r") + 1);
+
+    // Find the closing ```
+    const std::size_t seclim = text.find(CC_MARKER_LIMIT, eoLine + 1);
+    if (seclim == std::string::npos)
+      break;
+
+    // Extract code
+    StringView        code = text.substr(eoLine + 1, seclim - (eoLine + 1));
+
+    res.emplace_back(languageMarker, code);
+
+    // Move pos past the closing ```
+    text.remove_prefix(seclim + CC_MARKER_LIMIT.size());
+  }
+
+  return res;
+}
+
+SourceRange
+replaceSourceSection(std::ostream& os, std::istream& is, SourceRange sourceRange, const CodeSection& codesec)
+{
+  // Get start and end points of the range to replace
+  SourcePoint beg = sourceRange.beg();
+  SourcePoint lim = sourceRange.lim();
+
+  const std::vector<std::string> sourceLines = readSourceFromStream(is);
+  auto linePrinter =
+          [&os](const std::string& line)->void
+          {
+            os << line << std::endl;
+          };
+
+  // Write lines before the replacement
+  assert(sourceLines.size() >= beg.line());
+  auto const prebeg = sourceLines.begin();
+  auto const prelim = sourceLines.begin()+beg.line();
+
+  std::for_each(prebeg, prelim, linePrinter);
+
+  // Write the part of the line before the replacement (if any)
+  // os << inputLines.at(beg.line()).substr(0, beg.col());
+
+  std::size_t kernellen = printUnescaped(os, codesec.code());
+  SourcePoint newlim    = SourcePoint::eof();
+  const bool  fullrange = lim == newlim;
+
+  if (!fullrange)
+  {
+    assert(sourceLines.size() >= lim.line());
+    auto const postbeg = sourceLines.begin()+lim.line();
+    auto const postlim = sourceLines.end();
+
+    std::for_each(postbeg, postlim, linePrinter);
+    newlim = llmtools::SourcePoint{beg.line() + kernellen, 0};
+  }
+
+  return { beg, newlim };
+}
+
+
+/// prints the code from \p code to the stream \p os while unescaping
+///   escaped characters.
+/// \return the number of lines printed.
+std::size_t
+printUnescaped(std::ostream& os, const std::string& srccode)
+{
+  StringView  code = srccode;
+  std::size_t linecnt = 1;
+  char        last = ' ';
+  bool        lastIsLineBreak = false;
+
+  // print to os while handling escaped characters
+  for (char ch : code)
+  {
+    lastIsLineBreak = false;
+
+    if (last == '\\')
+    {
+      switch (ch)
+      {
+        case 'f':  /* form feed */
+                   ++linecnt;
+                   os << '\n';
+                   [[fallthrough]];
+
+        case 'n':  ++linecnt;
+                   os << '\n';
+                   lastIsLineBreak = true;
+                   break;
+
+        case 't':  os << "  ";
+                   break;
+
+        case 'a':  /* bell */
+        case 'v':  /* vertical tab */
+        case 'r':  /* carriage return */
+                   break;
+
+        case '\'':
+        case '"' :
+        case '?' :
+        case '\\': os << ch;
+                   break;
+
+        default:   os << last << ch;
+      }
+
+      last = ' ';
+    }
+    else if (ch == '\n')
+    {
+      os << ch;
+      ++linecnt;
+      lastIsLineBreak = true;
+    }
+    else if (ch == '\\')
+      last = ch;
+    else
+      os << ch;
+  }
+
+  if (!lastIsLineBreak) os << '\n';
+
+  return linecnt;
+}
+
 
 
 }

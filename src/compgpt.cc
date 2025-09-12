@@ -346,116 +346,8 @@ void trace(std::ostream& os, Arg&& arg, Rest&&... rest)
 
 
 
-/// a source code location
-using SourcePointBase = std::tuple<std::size_t, std::size_t>;
-struct SourcePoint : SourcePointBase
-{
-  using base = SourcePointBase;
-  using base::base;
 
-  std::size_t line() const { return std::get<0>(*this); }
-  std::size_t col()  const { return std::get<1>(*this); }
-
-  static
-  SourcePoint origin();
-
-  static
-  SourcePoint eof();
-};
-
-// static
-SourcePoint
-SourcePoint::origin()
-{
-  return { 0, 0 };
-}
-
-// static
-SourcePoint
-SourcePoint::eof()
-{
-  return { std::numeric_limits<std::size_t>::max(),
-           std::numeric_limits<std::size_t>::max()
-         };
-}
-
-std::ostream&
-operator<<(std::ostream& os, SourcePoint p)
-{
-  if (p == SourcePoint::origin())
-    return os << "\u03b1";
-
-  if (p == SourcePoint::eof())
-    return os << "\u03a9";
-
-  return os << p.line() << ":" << p.col();
-}
-
-/// a source code range
-using SourceRangeBase = std::tuple<SourcePoint, SourcePoint>;
-struct SourceRange : SourceRangeBase
-{
-  using base = SourceRangeBase;
-  using base::base;
-
-  SourcePoint beg() const { return std::get<0>(*this); }
-  SourcePoint lim() const { return std::get<1>(*this); }
-
-  bool entireFile() const
-  {
-    return (  (beg() == SourcePoint::origin())
-           && (lim() == SourcePoint::eof())
-           );
-  }
-};
-
-std::ostream&
-operator<<(std::ostream& os, SourceRange p)
-{
-  return os << p.beg() << "-" << p.lim();
-}
-
-using PlaceholderBase = std::tuple<std::size_t, std::string>;
-
-/// encapsulates any text placeholder that gets substituted with
-///   programmatic information (reports, source code).
-struct Placeholder : PlaceholderBase
-{
-  using base = PlaceholderBase;
-  using base::base;
-
-  std::size_t      offsetInString() const { return std::get<0>(*this); }
-  std::string_view token()          const { return std::get<1>(*this); }
-};
-
-
-using PlaceholderMapBase = std::unordered_map<std::string_view, std::string>;
-
-struct PlaceholderMap : PlaceholderMapBase
-{
-  using base = PlaceholderMapBase;
-  using base::base;
-
-  Placeholder next(std::string_view prompt);
-};
-
-Placeholder
-PlaceholderMap::next(std::string_view prompt)
-{
-  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
-  {
-    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
-    {
-      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
-
-      if (this->find(cand) != this->end())
-        return Placeholder{pos, cand};
-    }
-  }
-
-  return Placeholder{prompt.size(), ""};
-}
-
+using PlaceholderMap = llmtools::VariableMap;
 
 
 /// encapsulates all command line switches and their settings
@@ -476,7 +368,9 @@ struct CmdLineArgs
   std::string                   configFrom           = "";
   std::string                   configCompiler       = "";
   std::filesystem::path         programPath          = "compgpt.bin";
-  SourceRange                   kernel               = { SourcePoint::origin(), SourcePoint::eof() };
+  llmtools::SourceRange         kernel               = { llmtools::SourcePoint::origin()
+                                                       , llmtools::SourcePoint::eof()
+                                                       };
   std::string                   csvsummary           = "";
   std::vector<std::string_view> all;
   PlaceholderMap                vars;
@@ -629,28 +523,6 @@ splitString(const std::string& input, char splitch = '\n')
 }
 
 
-/// replaces known placeholders with their text
-std::string
-expandText0(std::string_view prompt, PlaceholderMap m)
-{
-  std::stringstream txt;
-  Placeholder       var = m.next(prompt);
-
-  while (var.token().size() != 0)
-  {
-    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
-
-    txt << prompt.substr(0, var.offsetInString())
-        << m.at(var.token());
-
-    prompt.remove_prefix(prefixlen);
-    var = m.next(prompt);
-  }
-
-  txt << prompt;
-  return txt.str();
-}
-
 
 /// Adds extra variables to the map
 /// \{
@@ -664,7 +536,7 @@ addToMap(PlaceholderMap m, PlaceholderMap extras)
 }
 
 PlaceholderMap
-addToMap(PlaceholderMap m, SourceRange rng)
+addToMap(PlaceholderMap m, llmtools::SourceRange rng)
 {
   std::string one  = "1";
   std::string limit = "end of file";
@@ -727,13 +599,13 @@ PlaceholderMap makeVariables(PlaceholderMap m, Additions&& args, MoreAdditions&&
 
 template <class... Additions>
 std::string
-expandText(std::string_view prompt, PlaceholderMap m, Additions... extras)
+expandText(const std::string& prompt, PlaceholderMap m, Additions... extras)
 {
-  return expandText0(prompt, makeVariables(std::move(m), std::forward<Additions>(extras)...));
+  return llmtools::expandPrompt(prompt, makeVariables(std::move(m), std::forward<Additions>(extras)...));
 }
 
 
-using DiagnosticBase = std::tuple<std::string, SourcePoint, std::vector<std::string> >;
+using DiagnosticBase = std::tuple<std::string, llmtools::SourcePoint, std::vector<std::string> >;
 
 /// encapsulates diagnostic output (warnings, errors, optimization diagnostics).
 struct Diagnostic : DiagnosticBase
@@ -742,13 +614,13 @@ struct Diagnostic : DiagnosticBase
   using base::base;
 
   const std::string&              file()     const { return std::get<0>(*this); }
-  SourcePoint                     location() const { return std::get<1>(*this); }
+  llmtools::SourcePoint                     location() const { return std::get<1>(*this); }
   const std::vector<std::string>& message()  const { return std::get<2>(*this); }
 
   bool empty() const { return message().empty(); }
 
   std::string&              file()     { return std::get<0>(*this); }
-  SourcePoint&              location() { return std::get<1>(*this); }
+  llmtools::SourcePoint&              location() { return std::get<1>(*this); }
   std::vector<std::string>& message()  { return std::get<2>(*this); }
 };
 
@@ -808,7 +680,7 @@ struct LessThanDiagnostic
 
 
 /// uses a regex to find a file location within a string \p s.
-std::tuple<std::string, SourcePoint>
+std::tuple<std::string, llmtools::SourcePoint>
 fileLocation(const std::string& s)
 {
   const std::regex patLocation{"(.*):([0-9]*):([0-9]*):"};
@@ -877,7 +749,7 @@ CompilationResult
 filterMessageOutput( const Settings& settings,
                      const std::string& out,
                      std::string_view filename,
-                     SourceRange rng,
+                     llmtools::SourceRange rng,
                      bool success
                    )
 {
@@ -931,7 +803,7 @@ filterMessageOutput( const Settings& settings,
 
 /// calls the compiler component
 CompilationResult
-invokeCompiler(const Settings& settings, GlobalVars& globals, SourceRange kernelrng, std::vector<std::string> args)
+invokeCompiler(const Settings& settings, GlobalVars& globals, llmtools::SourceRange kernelrng, std::vector<std::string> args)
 {
   MeasureRuntime timer(globals.compileTime);
 
@@ -979,7 +851,7 @@ compileResult( const Settings& settings,
                const CmdLineArgs& cmdline,
                GlobalVars& globals,
                std::string_view newFile,
-               SourceRange kernelrng
+               llmtools::SourceRange kernelrng
              )
 {
   trace(std::cerr, "compile: ", newFile, "@", kernelrng, '\n');
@@ -1204,36 +1076,6 @@ invokeTestScript(const Settings& settings, GlobalVars& globals, const Placeholde
 }
 
 
-/// loads the specified subsection of a code into a string.
-std::string
-loadCodeQuery(const Settings& settings, std::string_view filename, SourceRange rng)
-{
-  std::stringstream txt;
-
-  txt << CC_MARKER_BEGIN << settings.inputLang
-      << "\n";
-
-  std::ifstream     src{std::string(filename)};
-  std::string       line;
-  std::size_t const begLine = rng.beg().line();
-  std::size_t const limLine = rng.lim().line();
-  std::size_t       linectr = 1; // source code starts at line 1
-
-  // skip beginning lines
-  while ((linectr < begLine) && std::getline(src, line)) ++linectr;
-
-  // copy code segment
-  while ((linectr < limLine) && std::getline(src, line))
-  {
-    ++linectr;
-    txt << line << "\n";
-  }
-
-  txt << CC_MARKER_LIMIT << '\n';
-
-  return txt.str();
-}
-
 /// generates a conversation history containing the first prompt.
 json::value
 initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output, const Revision& rev)
@@ -1245,8 +1087,8 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   json::value    res = createConversationHistory(settings.llmSettings, settings.systemText);
   long double    score = rev.result().score();
   std::int64_t   iscore = score;
-  PlaceholderMap extras{ {"code",   loadCodeQuery(settings, args.all.back(), args.kernel)},
-                         {"report", output},
+  PlaceholderMap extras{ {"code",     fileToMarkdown(settings.inputLang, std::string(args.all.back()), args.kernel)},
+                         {"report",   output},
                          {"score",    std::to_string(score)},
                          {"scoreint", std::to_string(iscore)}
                        };
@@ -1338,150 +1180,38 @@ generateNewFileName(std::string_view fileName, std::string_view newFileExt, int 
   return res;
 }
 
-
-/// prints the code from \p code to the stream \p os while unescaping
-///   escaped characters.
-/// \return the number of lines printed.
-std::size_t
-printUnescaped(std::ostream& os, std::string_view code)
-{
-  std::size_t linecnt = 1;
-  char        last = ' ';
-  bool        lastIsLineBreak = false;
-
-  // print to os while handling escaped characters
-  for (char ch : code)
-  {
-    lastIsLineBreak = false;
-
-    if (last == '\\')
-    {
-      switch (ch)
-      {
-        case 'f':  /* form feed */
-                   ++linecnt;
-                   os << '\n';
-                   [[fallthrough]];
-
-        case 'n':  ++linecnt;
-                   os << '\n';
-                   lastIsLineBreak = true;
-                   break;
-
-        case 't':  os << "  ";
-                   break;
-
-        case 'a':  /* bell */
-        case 'v':  /* vertical tab */
-        case 'r':  /* carriage return */
-                   break;
-
-        case '\'':
-        case '"' :
-        case '?' :
-        case '\\': os << ch;
-                   break;
-
-        default:   os << last << ch;
-      }
-
-      last = ' ';
-    }
-    else if (ch == '\n')
-    {
-      os << ch;
-      ++linecnt;
-      lastIsLineBreak = true;
-    }
-    else if (ch == '\\')
-      last = ch;
-    else
-      os << ch;
-  }
-
-  if (!lastIsLineBreak) os << '\n';
-
-  return linecnt;
-}
-
-/// copies from the original file identified by \p fileName the range [\p beg, \p lim) to \p os.
-void
-copyFromOriginalFile( std::string_view fileName,
-                      std::ostream& os,
-                      SourcePoint beg,
-                      SourcePoint lim
-                    )
-{
-  std::filesystem::path p{fileName};
-  std::ifstream         inp(p);
-  std::string           line;
-  std::size_t           linectr = 1;
-
-  while ((linectr < beg.line()) && std::getline(inp, line)) ++linectr;
-
-  // copy code segment
-  while ((linectr < lim.line()) && std::getline(inp, line))
-  {
-    ++linectr;
-    os << line << std::endl;
-  }
-}
-
 /// extracts the file content from the AI \p response and use it to generate
 ///   a new input file. The new file name is returned.
-std::tuple<std::string, SourceRange>
+std::tuple<std::string, llmtools::SourceRange>
 storeGeneratedFile( const Settings& settings,
                     const CmdLineArgs& cmdline,
                     std::string_view response
                   )
 {
+  using CodeSections = std::vector<llmtools::CodeSection>;
+
   std::string_view  fileName  = cmdline.all.back();
   const int         iteration = 1;
   const std::string newFile   = generateNewFileName(fileName, settings.newFileExt, iteration);
-  std::string       marker    = CC_MARKER_BEGIN + settings.outputLang;
-  std::size_t       mark      = response.find(marker);
+  CodeSections      codeSections = llmtools::extractCodeSections(std::string(response));
 
-  if (mark == std::string::npos)
+  if (codeSections.empty())
   {
-    // fallback for models that do not get markdown correctly
-    marker = CC_MARKER_BEGIN;
-    mark   = response.find(marker);
-  }
-
-  if (mark == std::string::npos)
-  {
-    trace(std::cerr, response, "\n  missing markdown code block ", marker, settings.outputLang, '\n');
+    trace(std::cerr, response, "\n  missing markdown code block ", settings.outputLang, '\n');
     throw MissingCodeError{"Cannot find markdown code block in AI output."};
   }
 
-  const std::size_t beg = mark + marker.size();
-  const std::size_t lim = response.find(CC_MARKER_LIMIT, beg);
-
-  if (lim == std::string::npos)
-  {
-    trace(std::cerr, response, "\n  missing markdown code delimiter ", CC_MARKER_LIMIT, '\n');
-    throw MissingCodeError{"Cannot find markdown code delimiter in AI output."};
-  }
-
-  if (response.find(marker, lim + CC_MARKER_LIMIT.size()) != std::string::npos)
+  if (codeSections.size() > 1)
   {
     trace(std::cerr, response, "\n  found multiple code sections\n");
     throw MultipleCodeSectionsError{"Found multiple code sections."};
   }
 
   std::ofstream     outf{newFile};
+  std::ifstream     srcf{std::string(fileName)};
+  llmtools::SourceRange newRange = replaceSourceSection(outf, srcf, cmdline.kernel, codeSections.back());
 
-  copyFromOriginalFile(fileName, outf, SourcePoint::origin(), cmdline.kernel.beg());
-  const std::size_t kernellen = printUnescaped(outf, response.substr(beg, lim - beg));
-  copyFromOriginalFile(fileName, outf, cmdline.kernel.lim(), SourcePoint::eof());
-
-  SourcePoint       newlim = SourcePoint::eof();
-  const bool        fullrange = cmdline.kernel.lim() == SourcePoint::eof();
-
-  if (!fullrange)
-    newlim = SourcePoint{cmdline.kernel.beg().line() + kernellen, 0};
-
-  return { newFile, { cmdline.kernel.beg(), newlim } };
+  return { newFile, newRange };
 }
 
 
@@ -1890,7 +1620,7 @@ struct CmdLineProc
            };
   }
 
-  std::tuple<SourcePoint, std::string_view>
+  std::tuple<llmtools::SourcePoint, std::string_view>
   parseSourcePoint(std::string_view s0, std::function<std::string_view(std::string_view)> follow)
   {
     auto [ln, s1] = parseNum(s0, parseOptionalChar(':'));
@@ -1899,7 +1629,7 @@ struct CmdLineProc
     return { {ln,cl}, s2 };
   }
 
-  SourceRange
+  llmtools::SourceRange
   parseSourceRange(std::string_view s0)
   {
     auto [beg, s1] = parseSourcePoint(s0, parseChar('-'));
@@ -1909,7 +1639,7 @@ struct CmdLineProc
     {
       std::cerr << "source range has trailing characters; source range ignored."
                 << std::endl;
-      return {SourcePoint{},SourcePoint{}};
+      return {llmtools::SourcePoint{},llmtools::SourcePoint{}};
     }
 
     return {beg,lim};
@@ -1931,7 +1661,7 @@ struct CmdLineProc
 
     std::cerr << "add ]" << s0.substr(0, pos) << " " << s0.substr(pos+1)
               << std::endl;
-    vars[s0.substr(0, pos)] = s0.substr(pos+1);
+    vars[std::string(s0.substr(0, pos))] = s0.substr(pos+1);
   }
 
   void operator()(std::string_view arg)

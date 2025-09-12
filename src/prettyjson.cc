@@ -14,114 +14,21 @@
 #include <iostream>
 #include <fstream>
 
-#include <boost/json/src.hpp>
+#include <boost/json.hpp>
+
+#include "llmtools.h"
 
 #include "tool_version.hpp"
 
 namespace json = boost::json;
 
 json::value
-readJsonFile(std::istream& is)
-{
-  // adapted from the boost json documentation:
-  //   https://www.boost.org/doc/libs/1_85_0/libs/json/doc/html/json/input_output.html#json.input_output.parsing
-
-  boost::system::error_code  ec;
-  boost::json::stream_parser p;
-  std::string                line;
-
-  while (std::getline(is, line))
-  {
-    p.write(line, ec);
-
-    if (ec)
-    {
-      std::cerr << ec << std::endl;
-      throw std::runtime_error("unable to parse JSON file: " + line);
-    }
-  }
-
-
-  p.finish(ec);
-
-  std::cerr << ec << std::endl;
-
-  if (ec) throw std::runtime_error("unable to finish parsing JSON file");
-
-  return p.release();
-}
-
-
-json::value
 parse_file( char const* filename )
 {
-    std::ifstream f(filename);
+  std::ifstream f{filename};
 
-    return readJsonFile(f);
+  return llmtools::readJsonStream(f);
 }
-
-std::size_t
-printUnescaped(std::ostream& os, std::string_view code)
-{
-  std::size_t linecnt = 1;
-  char        last = ' ';
-  bool        lastIsLineBreak = false;
-
-  // print to os while handling escaped characters
-  for (char ch : code)
-  {
-    lastIsLineBreak = false;
-
-    if (last == '\\')
-    {
-      switch (ch)
-      {
-        case 'f':  /* form feed */
-                   ++linecnt;
-                   os << '\n';
-                   [[fallthrough]];
-
-        case 'n':  ++linecnt;
-                   os << '\n';
-                   lastIsLineBreak = true;
-                   break;
-
-        case 't':  os << "  ";
-                   break;
-
-        case 'a':  /* bell */
-        case 'v':  /* vertical tab */
-        case 'r':  /* carriage return */
-                   break;
-
-        case '\'':
-        case '"' :
-        case '?' :
-        case '\\': os << ch;
-                   break;
-
-        default:   os << last << ch;
-      }
-
-      last = ' ';
-    }
-    else if (ch == '\n')
-    {
-      os << ch;
-      ++linecnt;
-      lastIsLineBreak = true;
-    }
-    else if (ch == '\\')
-      last = ch;
-    else
-      os << ch;
-  }
-
-  if (!lastIsLineBreak) os << '\n';
-
-  return linecnt;
-}
-
 
 void
 pretty_print( std::ostream& os, json::value const& jv, std::string* indent = nullptr )
@@ -179,7 +86,7 @@ pretty_print( std::ostream& os, json::value const& jv, std::string* indent = nul
 
     case json::kind::string:
     {
-        printUnescaped(os, json::serialize(jv.get_string()));
+        llmtools::printUnescaped(os, json::serialize(jv.get_string()));
         break;
     }
 
