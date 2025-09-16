@@ -1,6 +1,7 @@
 #include "llmtools.h"
 
 #include <string>
+//~ #include <iostream>
 
 #include <boost/asio.hpp>
 #include <boost/version.hpp>
@@ -270,31 +271,55 @@ StringView extractResponseFromLog(StringView text, StringView input, StringView 
   return response.substr(0, delim);
 }
 
+json::object
+createResponse(const llmtools::Settings& settings, StringView response)
+{
+  json::object res;
+
+  res["role"]    = settings.roleOfAI;
+  res["content"] = response;
+  return res;
+}
+
+
 /// loads the AI response from a JSON object
-std::string loadAIResponseJson(const llmtools::Settings& settings)
+json::object
+loadAIResponseJson(const llmtools::Settings& settings)
 {
   std::ifstream is{settings.responseFile};
+  json::value   output = llmtools::readJsonStream(is);
+  json::object  res = createResponse(settings, jsonField(output, settings.responseField));
 
-  return jsonField(llmtools::readJsonStream(is), settings.responseField);
+  try
+  {
+    std::string stopReason = jsonField(output, "stop_reason");
+
+    res["stop_reason"] = stopReason;
+  }
+  catch (...) {}
+
+  return res;
 }
 
 /// loads the AI response from a text file
-std::string loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& query)
+json::object
+loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& query)
 {
-  std::string res = readTxtFile(settings.responseFile);
+  std::string txt = readTxtFile(settings.responseFile);
 
   if (isLogFile(settings.responseFile))
   {
     std::string history = llmtools::lastEntry(query) + "\nmodel";
 
-    res = std::string{extractResponseFromLog(res, history, "[end of text]")};
+    txt = std::string{extractResponseFromLog(txt, history, "[end of text]")};
   }
 
-  return res;
+  return createResponse(settings, txt);
 }
 
 /// loads the AI response
-std::string loadAIResponse(const llmtools::Settings& settings, const boost::json::value& query)
+json::object
+loadAIResponse(const llmtools::Settings& settings, const boost::json::value& query)
 {
   if (isJsonFile(settings.responseFile))
     return loadAIResponseJson(settings);
@@ -304,7 +329,8 @@ std::string loadAIResponse(const llmtools::Settings& settings, const boost::json
 
 
 /// calls AI and returns result in response file
-std::string invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
+json::object
+invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
 {
   storeQuery(settings, query);
 
@@ -337,22 +363,21 @@ std::string invokeAI(const llmtools::Settings& settings, const boost::json::valu
 
   //~ trace(std::cerr, "CallAI - exitcode: ", ec, '\n');
 
-  if (ec != 0) throw std::runtime_error{"AI invocation error."};
+  if (ec != 0)
+  {
+    throw std::runtime_error{"AI invocation error: " + errstr.get()};
+  }
 
   return loadAIResponse(settings, query);
 }
 
 /// appends a response \p response to a conversation history \p val.
 json::value
-appendResponse(const llmtools::Settings& settings, json::value val, std::string response)
+appendResponse(json::value val, json::object response)
 {
   json::array& res = val.as_array();
-  json::object line;
 
-  line["role"]    = settings.roleOfAI;
-  line["content"] = response;
-
-  res.emplace_back(std::move(line));
+  res.emplace_back(std::move(response));
   return val;
 }
 
@@ -450,10 +475,9 @@ namespace llmtools
 boost::json::value
 queryResponse(const Settings& settings, boost::json::value query)
 {
-  std::string response = invokeAI(settings, query);
+  json::object response = invokeAI(settings, query);
 
-  query = appendResponse(settings, std::move(query), response);
-  return query;
+  return appendResponse(std::move(query), std::move(response));
 }
 
 /// processes a JSON stream.
@@ -749,11 +773,19 @@ extractCodeSections(const std::string& markdownText)
       break;
 
     // Extract language marker (if any)
-    StringView        languageMarker = text.substr(postmarker, eoLine - postmarker);
+    StringView langMarker = text.substr(postmarker, eoLine - postmarker);
 
-    // Remove leading/trailing whitespace
-    languageMarker.remove_prefix(languageMarker.find_first_not_of(" \t\r"));
-    languageMarker.remove_suffix(languageMarker.size() - languageMarker.find_last_not_of(" \t\r") + 1);
+    // Remove leading/trailing whitespace from language marker
+    {
+      const auto lmrend = langMarker.rend();
+      const int  endPos = std::distance(std::find_if_not(langMarker.rbegin(), lmrend, std::iswspace), lmrend);
+      const auto lmbeg  = langMarker.begin();
+      const int  begPos = std::distance(lmbeg, std::find_if_not(lmbeg,  langMarker.end(), std::iswspace));
+      const int  newLen = std::max(endPos - begPos, 0);
+
+      // Create a new string_view representing the trimmed portion
+      langMarker = langMarker.substr(begPos, newLen);
+    }
 
     // Find the closing ```
     const std::size_t seclim = text.find(CC_MARKER_LIMIT, eoLine + 1);
@@ -763,7 +795,7 @@ extractCodeSections(const std::string& markdownText)
     // Extract code
     StringView        code = text.substr(eoLine + 1, seclim - (eoLine + 1));
 
-    res.emplace_back(languageMarker, code);
+    res.emplace_back(langMarker, code);
 
     // Move pos past the closing ```
     text.remove_prefix(seclim + CC_MARKER_LIMIT.size());

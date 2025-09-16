@@ -49,6 +49,12 @@ namespace boostprocess = boost::process::v1;
 #include "llmtools.h"
 
 
+#include <boost/utility/string_view.hpp>
+
+using StringView = boost::string_view;
+
+
+
 namespace json = boost::json;
 
 const std::string CC_MARKER_BEGIN = "```";
@@ -1105,21 +1111,6 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
   return res;
 }
 
-/// appends a prompt \p prompt to a conversation history \p val.
-json::value
-appendPrompt(json::value val, std::string prompt)
-{
-  json::array&      res = val.as_array();
-  json::object      q;
-
-  q["role"]    = "user";
-  q["content"] = prompt;
-
-  res.emplace_back(std::move(q));
-  return val;
-}
-
-
 
 /// parses JSON input from a line.
 json::value
@@ -1817,7 +1808,7 @@ std::tuple<json::value, std::vector<Revision>, bool>
 promptResponseEval( const CmdLineArgs& cmdlnargs,
                     const Settings& settings,
                     GlobalVars& globals,
-                    json::value query,
+                    json::value conversation,
                     std::vector<Revision> variants,
                     bool lastIteration
                   )
@@ -1825,12 +1816,21 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
   {
     MeasureRuntime aiTime{globals.aiTime};
 
-    query = llmtools::queryResponse(settings.llmSettings, std::move(query));
+    conversation = llmtools::queryResponse(settings.llmSettings, std::move(conversation));
+  }
+
+  if (false)
+  {
+    const json::array&  convo   = conversation.as_array();
+    const json::value&  lastVal = convo.back();
+    const json::object& lastObj = lastVal.as_object();
+    if (auto pos = lastObj.find("stop_reason"); pos != lastObj.end())
+      std::cerr << "stop_reason" << ": " << pos->value() << "\n";
   }
 
   try
   {
-    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, llmtools::lastEntry(query));
+    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, llmtools::lastEntry(conversation));
     CompilationResult compres         = compileResult(settings, cmdlnargs, globals, newFile, kernelrange);
 
     if (compres.success())
@@ -1844,7 +1844,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
         trace(std::cerr, "Compiled and tested, results ", qualityText(variants), ".\n");
 
         if (settings.stopOnSuccess)
-          return { std::move(query), std::move(variants), true };
+          return { std::move(conversation), std::move(variants), true };
 
         if (!lastIteration)
         {
@@ -1862,7 +1862,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                             );
 
           // \todo add quality assessment to prompt
-          query = appendPrompt(std::move(query), std::move(prompt));
+          conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
         }
       }
       else
@@ -1882,7 +1882,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                               std::move(extras)
                                             );
 
-          query = appendPrompt(std::move(query), std::move(prompt));
+          conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
         }
       }
     }
@@ -1895,7 +1895,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
       if (!lastIteration)
       {
-        PlaceholderMap extras{ {"report", compres.output()},
+        PlaceholderMap extras{ {"report",   compres.output()},
                                {"score",    "NaN"},
                                {"scoreint", "compilation failed"}
                              };
@@ -1906,7 +1906,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                          std::move(extras)
                                        );
 
-        query = appendPrompt(std::move(query), std::move(prompt));
+        conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
       }
     }
   }
@@ -1915,17 +1915,17 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
     std::string response = "Unable to find the markdown code block. Respond by putting the optimized code in a markdown code block.";
 
     variants.emplace_back("--no-code--", TestResult{false, nanValue<long double>(), "<no code marker>"});
-    query = appendPrompt(std::move(query), std::move(response));
+    conversation = llmtools::appendPrompt(std::move(conversation), std::move(response));
   }
   catch (const MultipleCodeSectionsError&)
   {
-    std::string response = "Found multiple code sections in the output. Return the entire code within a single code.";
+    std::string response = "There were multiple code sections in the response. Return the optimized code within a single markdown code block.";
 
     variants.emplace_back("|codes-section|>1", TestResult{false, nanValue<long double>(), "<too may code segments>"});
-    query = appendPrompt(std::move(query), std::move(response));
+    conversation = llmtools::appendPrompt(std::move(conversation), std::move(response));
   }
 
-  return { std::move(query), std::move(variants), false };
+  return { std::move(conversation), std::move(variants), false };
 }
 
 /// core loop managing AI/tool interactions
@@ -1985,6 +1985,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
 
   return { std::move(query), std::move(variants) };
 }
+
 
 /// main driver file
 int main(int argc, char** argv)
