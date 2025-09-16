@@ -2,7 +2,13 @@
 
 set -e
 
-# set claude-3-5-sonnet-20241022 as the default model 
+if [[ ! -v ANTHROPIC_API_KEY ]]; then
+  echo "Environment variable ANTHROPIC_API_KEY is not set." >&2
+  echo "Exiting with error.." >&2
+  exit 1
+fi
+
+# set claude-3-5-sonnet-20241022 as the default model
 #   (set by the driver; default supports legacy configurations)
 model="claude-3-5-sonnet-20241022"
 

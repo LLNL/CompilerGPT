@@ -2,7 +2,14 @@
 
 set -e
 
-# set google/gemini-2.0-flash-exp:free as the default model 
+if [[ ! -v OPENROUTER_API_KEY ]]; then
+  echo "Environment variable OPENROUTER_API_KEY is not set." >&2
+  echo "Exiting with error.." >&2
+  exit 1
+fi
+
+
+# set google/gemini-2.0-flash-exp:free as the default model
 #   (should be set from the model anyways)
 model="google/gemini-2.0-flash-exp:free"
 
@@ -40,4 +47,3 @@ curl https://openrouter.ai/api/v1/chat/completions \
      -H "Authorization: Bearer $OPENROUTER_API_KEY" \
      --data "@q.json" \
      -o response.json
-

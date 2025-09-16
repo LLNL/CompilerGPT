@@ -2,7 +2,14 @@
 
 set -e
 
-# set gpt4o as the default model 
+if [[ ! -v OPENAI_API_KEY ]]; then
+  echo "Environment variable OPENAI_API_KEY is not set." >&2
+  echo "Exiting with error.." >&2
+  exit 1
+fi
+
+
+# set gpt4o as the default model
 #   (should be set from the model anyways)
 model="gpt-4o"
 
@@ -40,4 +47,3 @@ curl https://api.openai.com/v1/chat/completions \
      -H "Authorization: Bearer $OPENAI_API_KEY" \
      --data "@q.json" \
      -o response.json
-
