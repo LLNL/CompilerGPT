@@ -100,15 +100,15 @@ compilergpt/build> make -j8
 ## Utilities
 
 - **compgpt.bin**: Main binary for running CompilerGPT.
-- **logfilter.bin**: Utility for filtering logs.  
-  _Usage: `./logfilter.bin [options] < input.log > output.log`_  
+- **logfilter.bin**: Utility for filtering logs.
+  _Usage: `./logfilter.bin [options] < input.log > output.log`_
   _[Add more details as needed]_
-- **prettyjson.bin**: Pretty-prints JSON files (C++ version).  
+- **prettyjson.bin**: Pretty-prints JSON files (C++ version).
   _Usage: `./prettyjson.bin input.json`_
-- **prettyjson.py**: Pretty-prints JSON files (Python version).  
+- **prettyjson.py**: Pretty-prints JSON files (Python version).
   _Usage: `python3 src/prettyjson.py input.json`_
-- **test-llmtools.bin**: Test driver for the LLMTools library.  
-  _Usage: `./test-llmtools.bin [--log=<file>] [--model=<model>]`_  
+- **test-llmtools.bin**: Test driver for the LLMTools library.
+  _Usage: `./test-llmtools.bin [--log=<file>] [--model=<model>]`_
   _Build with: `make CXXVERSION=-std=c++14 test-llmtools.bin`_
 
 ---
@@ -137,8 +137,8 @@ To add a new LLM provider, create a new subdirectory in `scripts/` and add an `e
 
 ### Running Tests
 
-- If a test target exists in the Makefile:  
-  _Usage: `make test`_  
+- If a test target exists in the Makefile:
+  _Usage: `make test`_
   Otherwise, run tests manually as described in the relevant test directory.
 
 ### Adding Tests
@@ -151,7 +151,7 @@ To add a new LLM provider, create a new subdirectory in `scripts/` and add an `e
 ## Figures
 
 - Diagrams and workflow figures are in `figures/`.
-- Example:  
+- Example:
   ![Workflow](figures/optai.png)
 
 ---
@@ -332,18 +332,18 @@ Third-party benchmarks distributed with CompilerGPT retain the original licensin
 ## Source Code Release
 
 Copyright (c) 2025, Lawrence Livermore National Security, LLC.
-All rights reserved. LLNL-CODE-2000601
+All rights reserved. LLNL-CODE-2001821
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Please open issues or pull requests.  
+Contributions are welcome! Please open issues or pull requests.
 [Add code style and contribution guidelines here or link to CONTRIBUTING.md if available.]
 
 ---
 
 ## Platform Support
 
-- Supported platforms: Linux (tested).  
+- Supported platforms: Linux (tested).
 - Other platforms may work but are not officially supported.

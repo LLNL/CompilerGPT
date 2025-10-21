@@ -1944,7 +1944,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
               << compres.output()
               << std::endl;
 
-    // do we really need to exit; maybe compiler GPT can fix the output..
+    // do we really need to exit; maybe CompilerGPT can fix the output..
     exit(1);
   }
 
