@@ -10,13 +10,13 @@ ifeq ($(BUILDTYPE),debug)
 endif
 
 
-BINARIES := compgpt.bin logfilter.bin prettyjson.bin
+BINARIES := compgpt.bin logfilter.bin prettyjson.bin code-assist.bin
 HEADERS  := ./include/tool_version.hpp
 SOURCES  := $(BINARY:.bin=.cc)
 OBJECTS  := $(SOURCES:.cc=.o)
 
 INCLUDES   ?= -I$(BOOST_HOME)/include -I./include
-BOOSTLIBS  ?= -L$(BOOST_HOME)/lib -lboost_program_options -lboost_filesystem
+BOOSTLIBS  ?= -Wl,-rpath=$(BOOST_HOME)/lib -L$(BOOST_HOME)/lib -lboost_program_options -lboost_filesystem
 CXXVERSION ?= -std=c++20
 WARNFLAG   ?= -Wall -Wextra -pedantic
 OPTFLAG    ?= -O3
@@ -44,6 +44,9 @@ prettyjson.bin: prettyjson.o libllmtools.a
 
 test-llmtools.bin: test-llmtools.o libllmtools.a
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^
+
+code-assist.bin: code-assist.o libllmtools.a
+	$(CXX) -pthread -o $@ $^
 
 %.bin: %.o
 	$(CXX) $(BOOSTLIBS) -pthread -o $@ $^

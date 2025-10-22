@@ -50,9 +50,13 @@ namespace llmtools
   /// stores the \p conversationHistory into the historyfile as specified in \p settings
   void storeQuery(const Settings& settings, const boost::json::value& conversationHistory);
 
-  /// reads a JSON file and returns the corresponding JSON object
+  /// reads a JSON stream and returns the corresponding JSON object
   boost::json::value
   readJsonStream(std::istream& is);
+
+  /// reads a JSON file and returns the corresponding JSON object
+  boost::json::value
+  readJsonFile(const std::string& fileName);
 
   /// returns a new configuration for known LLM providers.
   /// \param pathToLLMToolsDir the base path of the library installation
@@ -91,7 +95,7 @@ namespace llmtools
   /// a map from variable-names to text
   using VariableMap = std::unordered_map<std::string, std::string>;
 
-  /// replaces variables in \p raprompt with values defined in \p vars.
+  /// replaces variables in \p rawprompt with values defined in \p vars.
   std::string
   expandPrompt(const std::string& rawprompt, const VariableMap& vars);
 
@@ -126,6 +130,10 @@ namespace llmtools
     SourcePoint lim() const { return std::get<1>(*this); }
 
     bool entireFile() const;
+
+    /// returns a source range for the entire file
+    static
+    SourceRange all();
   };
 
   std::ostream&

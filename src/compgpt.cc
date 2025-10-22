@@ -374,9 +374,7 @@ struct CmdLineArgs
   std::string                   configFrom           = "";
   std::string                   configCompiler       = "";
   std::filesystem::path         programPath          = "compgpt.bin";
-  llmtools::SourceRange         kernel               = { llmtools::SourcePoint::origin()
-                                                       , llmtools::SourcePoint::eof()
-                                                       };
+  llmtools::SourceRange         kernel               = llmtools::SourceRange::all();
   std::string                   csvsummary           = "";
   std::vector<std::string_view> all;
   PlaceholderMap                vars;
@@ -1387,24 +1385,11 @@ void configVersionCheck(const json::object& cnfobj)
 /// loads settings from a JSON file \p configFileName
 Settings readSettings(const std::string& configFileName)
 {
-  Settings      settings;
-
-  if (configFileName.empty())
-    return settings;
-
-  std::ifstream configFile{configFileName};
-
-  if (!configFile.good())
-  {
-    std::cerr << "The file " << configFileName << " is NOT ACCESSIBLE (or does not exist.)"
-              << "\n  => Using default values."
-              << std::endl;
-    return settings;
-  }
+  Settings settings;
 
   try
   {
-    json::value   cnf    = llmtools::readJsonStream(configFile);
+    json::value   cnf    = llmtools::readJsonFile(configFileName);
     json::object& cnfobj = cnf.as_object();
     Settings      config;
 
@@ -1556,19 +1541,7 @@ struct CmdLineProc
   llmtools::LLMProvider
   parseAI(std::string_view m)
   {
-    using ModelNames = std::unordered_map<std::string_view, llmtools::LLMProvider>;
-
-    static const ModelNames modelNames = { { "gpt4",       llmtools::openai },
-                                           { "openai",     llmtools::openai },
-                                           { "claude",     llmtools::claude },
-                                           { "ollama",     llmtools::ollama },
-                                           { "openrouter", llmtools::openrouter }
-                                         };
-
-    if (auto pos = modelNames.find(m); pos != modelNames.end())
-      return pos->second;
-
-    return llmtools::LLMerror;
+    return llmtools::provider(std::string(m));
   }
 
   std::tuple<std::size_t, std::string_view>

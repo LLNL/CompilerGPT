@@ -1,6 +1,7 @@
 #include "llmtools.h"
 
 #include <string>
+#include <algorithm>
 //~ #include <iostream>
 
 #include <boost/asio.hpp>
@@ -286,10 +287,10 @@ createResponse(const llmtools::Settings& settings, StringView response)
 json::object
 loadAIResponseJson(const llmtools::Settings& settings)
 {
-  std::ifstream is{settings.responseFile};
-  json::value   output = llmtools::readJsonStream(is);
+  json::value   output = llmtools::readJsonFile(settings.responseFile);
   json::object  res = createResponse(settings, jsonField(output, settings.responseField));
 
+#if 0
   try
   {
     std::string stopReason = jsonField(output, "stop_reason");
@@ -297,6 +298,7 @@ loadAIResponseJson(const llmtools::Settings& settings)
     res["stop_reason"] = stopReason;
   }
   catch (...) {}
+#endif
 
   return res;
 }
@@ -464,6 +466,14 @@ readSourceFromStream(std::istream& is)
   return res;
 }
 
+/// returns true if line is empty or only contains whitespace characters
+bool isEmptyLine(std::string_view line)
+{
+  return std::all_of( line.begin(), line.end(),
+                      [](unsigned char c) { return std::isspace(c); }
+                    );
+}
+
 
 }
 
@@ -512,6 +522,21 @@ readJsonStream(std::istream& is)
 
   return p.release();
 }
+
+boost::json::value
+readJsonFile(const std::string& fileName)
+{
+  if (fileName.empty())
+    throw std::runtime_error{"invalid empty filename"};
+
+  std::ifstream ifs(fileName);
+
+  if (!ifs.good())
+    throw std::runtime_error{"File " + fileName + " is not accessible"};
+
+  return readJsonStream(ifs);
+}
+
 
 /// writes out conversation history to a file so it can be used for the
 ///   next AI invocation.
@@ -691,6 +716,14 @@ SourcePoint::eof()
          };
 }
 
+// static
+SourceRange
+SourceRange::all()
+{
+  return { SourcePoint::origin(), SourcePoint::eof() };
+}
+
+
 std::ostream&
 operator<<(std::ostream& os, SourcePoint p)
 {
@@ -716,6 +749,7 @@ operator<<(std::ostream& os, SourceRange p)
   return os << p.beg() << "-" << p.lim();
 }
 
+
 /// loads the specified subsection of a code into a string.
 std::string
 fileToMarkdown(const std::string& langmarker, std::istream& src, SourceRange rng)
@@ -729,6 +763,7 @@ fileToMarkdown(const std::string& langmarker, std::istream& src, SourceRange rng
   std::size_t const begLine = rng.beg().line();
   std::size_t const limLine = rng.lim().line();
   std::size_t       linectr = 1; // source code starts at line 1
+  std::size_t       numNonEmpty = 0; // source code starts at line 1
 
   // skip beginning lines
   while ((linectr < begLine) && std::getline(src, line)) ++linectr;
@@ -736,9 +771,13 @@ fileToMarkdown(const std::string& langmarker, std::istream& src, SourceRange rng
   // copy code segment
   while ((linectr < limLine) && std::getline(src, line))
   {
+    numNonEmpty += int(isEmptyLine(line) == false);
     ++linectr;
     txt << line << "\n";
   }
+
+  if (numNonEmpty == 0)
+    return {};
 
   txt << CC_MARKER_LIMIT << '\n';
   return txt.str();
@@ -879,10 +918,10 @@ printUnescaped(std::ostream& os, const std::string& srccode)
         case 't':  os << "  ";
                    break;
 
-        case 'a':  /* bell */
-        case 'v':  /* vertical tab */
-        case 'r':  /* carriage return */
-                   break;
+        //~ case 'a':  /* bell */
+        //~ case 'v':  /* vertical tab */
+        //~ case 'r':  /* carriage return */
+                   //~ break;
 
         case '\'':
         case '"' :
