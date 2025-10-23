@@ -3,7 +3,7 @@
 //   extracts success and timing metrics from log files.
 //
 // Copyright (c) 2025, Lawrence Livermore National Security, LLC.
-// All rights reserved.  LLNL-CODE-2000601
+// All rights reserved.  LLNL-CODE-2001821
 //
 // License: SPDX BSD 3-Clause "New" or "Revised" License
 //          see LICENSE file for details

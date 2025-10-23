@@ -94,6 +94,9 @@ set(BOOST_INCLUDE_DIR
   ${source_dir}/libs/winapi/include
 )
 
+# for program_options -- not link-only
+# ${source_dir}/libs/any/include
+# ${source_dir}/libs/program_options/include
 
 
 ##
@@ -137,7 +140,7 @@ add_dependencies(logfilter.bin boost_external)
 ## Target: prettyjson.bin
 
 # Add executable using the source file from dependencies
-add_executable(prettyjson.bin src/logfilter.cc)
+add_executable(prettyjson.bin src/prettyjson.cc)
 
 target_link_libraries(prettyjson.bin PRIVATE llmtools)
 
@@ -146,4 +149,36 @@ target_include_directories(prettyjson.bin PRIVATE ${BOOST_INCLUDE_DIR})
 
 # Make sure Boost is downloaded before building the executable
 add_dependencies(prettyjson.bin boost_external)
+
+
+
+##
+## Target: prettyjson.bin
+
+# Add executable using the source file from dependencies
+add_executable(code-assist.bin src/code-assist.cc)
+
+target_link_libraries(code-assist.bin PRIVATE llmtools)
+
+# Set include directories including Boost headers
+target_include_directories(code-assist.bin PRIVATE ${BOOST_INCLUDE_DIR})
+
+# Make sure Boost is downloaded before building the executable
+add_dependencies(code-assist.bin boost_external)
+
+
+
+##
+## Target: test-llmtools.bin
+
+# Add executable using the source file from dependencies
+#add_executable(test-llmtools.bin src/test-llmtools.cc)
+
+#target_link_libraries(test-llmtools.bin PRIVATE llmtools)
+
+# Set include directories including Boost headers
+#target_include_directories(test-llmtools.bin PRIVATE ${BOOST_INCLUDE_DIR})
+
+# Make sure Boost is downloaded before building the executable
+#add_dependencies(test-llmtools.bin boost_external)
 

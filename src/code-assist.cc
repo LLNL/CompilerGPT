@@ -1,3 +1,13 @@
+// Code-Assist library
+//   - simple filter for AI integration into IDEs (e.g., geany)
+//
+// Copyright (c) 2025, Lawrence Livermore National Security, LLC.
+// All rights reserved.  LLNL-CODE-2001821
+//
+// License: SPDX BSD 3-Clause "New" or "Revised" License
+//          see LICENSE file for details
+//
+// Authors: pirkelbauer2,liao6 (at) llnl.gov
 
 #include <iostream>
 #include <cstdlib>
@@ -7,7 +17,7 @@
 #include <chrono>
 #include <ctime>
 #include <boost/json.hpp>
-#include <boost/program_options.hpp>
+// #include <boost/program_options.hpp>
 
 #include "llmtools.h"
 
