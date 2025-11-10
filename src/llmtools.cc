@@ -144,7 +144,7 @@ std::string checkInvocation(StringView filename)
 
   std::stringstream err;
 
-  err << "Error: default script " << filename << " not found\n"
+  err << "Error: default script '" << filename << "' not found\n"
       << "modify the configuration!"
       << std::endl;
 

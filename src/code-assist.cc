@@ -190,7 +190,7 @@ parseConfigFile(std::string_view configFileName, Settings settings)
     config.langMarker     = loadField(cnfobj, "langMarker",      config.langMarker);
     config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
     config.model          = loadField(cnfobj, "model",           config.model);
-    config.provider       = loadField(cnfobj, "testScript",      config.provider);
+    config.provider       = loadField(cnfobj, "provider",        config.provider);
 
     config.tools.historyFile = config.historyFile;
 
@@ -209,7 +209,7 @@ unparseConfigFile(std::ostream& os, const Settings& settings)
   os << "{"
      << "\n  \"tools\":"
      << "\n     {"
-     << "\n       \"invokai\":\"" << settings.tools.invokeai << "\","
+     << "\n       \"invokeai\":\"" << settings.tools.invokeai << "\","
      << "\n       \"responseFile\":\"" << settings.tools.responseFile << "\","
      << "\n       \"responseField\":\"" << settings.tools.responseField << "\","
      << "\n       \"systemTextFile\":\"" << settings.tools.systemTextFile << "\","
@@ -292,7 +292,7 @@ bool initialized(const Settings& settings)
 
 Settings configure(std::vector<std::string> args)
 {
-  Settings              res      = parseArguments(args);
+  Settings res = parseArguments(args);
 
   if (!initialized(res))
   {
@@ -329,9 +329,3 @@ int main(int argc, char* argv[])
   printResponse(std::cout, settings, history);
   return 0;
 }
-
-
-
-
-
-
