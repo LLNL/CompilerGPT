@@ -67,7 +67,7 @@ namespace /*anonymous*/
                                   }
           },
           { llmtools::claude,     { "scripts/claude/exec-claude.sh",
-                                    "claude-3-5-sonnet-20241022",
+                                    "claude-sonnet-4-5",
                                     "response.json",
                                     "content[0].text",
                                     "system.txt",
