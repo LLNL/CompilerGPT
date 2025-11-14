@@ -10,7 +10,7 @@ fi
 
 # set claude-3-5-sonnet-20241022 as the default model
 #   (set by the driver; default supports legacy configurations)
-model="claude-3-5-sonnet-20241022"
+model="claude-sonnet-4-5"
 
 if [ -n "$1" ]; then
   model="$1"

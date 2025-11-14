@@ -16,7 +16,7 @@
 
 #include <boost/json.hpp>
 
-#include "llmtools.h"
+#include "llmtools.hpp"
 
 #include "tool_version.hpp"
 

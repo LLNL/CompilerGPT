@@ -1,0 +1,107 @@
+{
+  "openai":
+    { "exec"      :"curl",
+      "execFlags" :"https://api.openai.com/v1/chat/completions -H \"Content-Type: application/json\" -H \"Authorization: Bearer ${LLMTOOLS:API_KEY}\" --data \"@${LLMTOOLS:PROMPT_FILE}\" -o ${LLMTOOLS:RESPONSE_FILE}",
+      "promptFile": { "filename":"q.json",
+                      "format": { "model":"${LLMTOOLS:MODEL}",
+                                  "stream":false,
+                                  "messages":"${LLMTOOLS:HISTORY}"
+                                }
+                    },
+      "modelName"       :"gpt-4o",
+      "responseFile"    :"response.json",
+      "responseField"   :"choices[0].message.content",
+      "systemTextFile"  :"",
+      "roleOfAI"        :"assistant",
+      "historyFile"     :"query.json",
+      "apiKeyName"      :"OPENAI_API_KEY",
+      "alternativeNames":["openai","gpt4o"]
+    },
+  "claude" :
+    { "exec"          :"curl",
+      "execFlags"     :"https://api.anthropic.com/v1/messages --header \"x-api-key: ${LLMTOOLS:API_KEY}\" --header \"anthropic-version: 2023-06-01\" --header \"content-type: application/json\" --data \"@${LLMTOOLS:PROMPT_FILE}\" -o ${LLMTOOLS:RESPONSE_FILE}",
+      "promptFile"    : { "filename":"q.json",
+                          "format": { "model":"${LLMTOOLS:MODEL}",
+                                      "max_tokens": 8000,
+                                      "system":"${LLMTOOLS:SYSTEM_TEXT}",
+                                      "messages":"${LLMTOOLS:HISTORY}"
+                                    }
+                        },
+      "modelName"       :"claude-sonnet-4-5",
+      "responseFile"    :"response.json",
+      "responseField"   :"content[0].text",
+      "systemTextFile"  :"system.txt",
+      "roleOfAI"        :"assistant",
+      "historyFile"     :"query.json",
+      "apiKeyName"      :"ANTHROPIC_API_KEY",
+      "alternativeNames":["claude", "anthropic"]
+    },
+  "ollama":
+    { "exec"      :"curl",
+      "execFlags" :"http://localhost:11434/api/chat -H \"Content-Type: application/json\" --data \"@${LLMTOOLS:PROMPT_FILE}\" -o ${LLMTOOLS:RESPONSE_FILE}",
+      "promptFile":{ "filename":"q.json",
+                     "format": { "model":"${LLMTOOLS:MODEL}",
+                                 "stream":false,
+                                 "system":"${LLMTOOLS:SYSTEM_TEXT}",
+                                 "messages":"${LLMTOOLS:HISTORY}"
+                               }
+                   },
+       "modelName"       :"llama3.3",
+       "responseFile"    :"response.json",
+       "responseField"   :"message.content",
+       "systemTextFile"  :"",
+       "roleOfAI"        :"assistant",
+       "queryFile"       :"query.json",
+       "alternativeNames":["ollama"]
+    },
+  "openrouter" :
+    { "exec"      :"curl",
+      "execFlags" :"https://openrouter.ai/api/v1/chat/completions -H \"Content-Type: application/json\" -H \"Authorization: Bearer ${LLMTOOLS:API_KEY}\" --data \"@${LLMTOOLS:PROMPT_FILE}\" -o ${LLMTOOLS:RESPONSE_FILE}",
+      "promptFile":{ "filename":"q.json",
+                     "format": { "model":"${LLMTOOLS:MODEL}",
+                                 "stream":false,
+                                 "system":"${LLMTOOLS:SYSTEM_TEXT}",
+                                 "messages":"${LLMTOOLS:HISTORY}"
+                               }
+                   },
+      "modelName"       :"google/gemini-2.0-flash-exp:free",
+      "responseFile"    :"response.json",
+      "responseField"   :"choices[0].message.content",
+      "systemTextFile"  :"",
+      "roleOfAI"        :"assistant",
+      "historyFile"     :"query.json",
+      "apiKeyName"      :"OPENROUTER_API_KEY",
+      "alternativeNames":["openrouter"]
+    },
+  "llamacli" : { "exec"            :"llama-cli",
+                 "execFlags"       :"-hf ${LLMTOOLS:MODEL} --simple-io -no-cnv --chat-template command-r -sysf ${LLMTOOLS:SYSTEM_TEXT_FILE} -f ${LLMTOOLS:HISTORY} >${LLMTOOLS:RESPONSE_FILE}",
+                 "modelName"       :"ggml-org/gemma-3-1b-it-GGUF",
+                 "responseFile"    :"response.log",
+                 "responseField"   :"",
+                 "systemTextFile"  :"system.txt",
+                 "roleOfAI"        :"model",
+                 "historyFile"     :"query.txt",
+                 "alternativeNames":["llamacli","llama-cli"]
+               },
+  "none"   : { "exec"            :"",
+               "modelName"       :"",
+               "responseFile"    :"",
+               "responseField"   :"",
+               "systemTextFile"  :"",
+               "roleOfAI"        :"",
+               "historyFile"     :"",
+               "alternativeNames":["none", "custom","user-defined","userdefined"]
+             },
+  "help"   : { "exec"            :"script handling model invocation",
+               "execFlags"       :"arguments for exec invocation",
+               "modelName"       :"the model name, can be set after configuration",
+               "responseFile"    :"file where the model stores the response",
+               "responseField"   :"if JSON, the field stores the access path to the response",
+               "systemTextFile"  :"file to store the system text, if it is not part of a JSON input",
+               "roleOfAI"        :"role of AI",
+               "historyFile"     :"history file",
+               "promptFile"      :"structure description of query as uploaded to server (may not be used)",
+               "apiKeyName"      :"Name of key that is read from the environment",
+               "alternativeNames":["help", "set of alternative model names"]
+             }
+}

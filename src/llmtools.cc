@@ -1,8 +1,11 @@
-#include "llmtools.h"
+#include "llmtools.hpp"
+
+#include <dlfcn.h>
 
 #include <string>
 #include <algorithm>
-//~ #include <iostream>
+#include <numeric>
+//~ #include <iostream> // for debugging only
 
 #include <boost/asio.hpp>
 #include <boost/version.hpp>
@@ -24,144 +27,268 @@ namespace boostprocess = boost::process::v1;
 
 #endif /* BOOST_VERSION */
 
-#include <boost/json/src.hpp>
+//~ #include <boost/json/src.hpp>
 #include <boost/utility/string_view.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/range/adaptors.hpp>
+#include <boost/optional.hpp>
 
-namespace json = boost::json;
-namespace boostfs = boost::filesystem;
+namespace json    = boost::json;
+namespace adapt   = boost::adaptors;
 
-using StringView = boost::string_view;
+using StringView  = boost::string_view;
+
+template <class T>
+using Optional = boost::optional<T>;
+
+namespace
+{
+
+const std::string VAR_PREFIX = "${";
+const std::string VAR_SUFFIX = "}";
+
+std::string
+getBaseDirectory(const std::string& path)
+{
+  std::size_t pos = path.find_last_of('/');
+  if (pos == std::string::npos)
+    return "";
+
+  return path.substr(0, pos) + "/..";
+}
+
+}
+
+std::string
+llmtoolsLibraryBasePath()
+{
+  Dl_info info;
+
+  if (dladdr((void*)&llmtoolsLibraryBasePath, &info))
+    return getBaseDirectory(info.dli_fname);
+
+  throw std::runtime_error{"Could not determine llmtools-library path"};
+}
 
 
 namespace /*anonymous*/
 {
-  const std::string CC_MARKER_BEGIN = "```";
-  const std::string CC_MARKER_LIMIT = "```";
+const std::string CC_MARKER_BEGIN = "```";
+const std::string CC_MARKER_LIMIT = "```";
 
-  using LLMSetupBase = std::tuple<const char*, const char*, const char*, const char*, const char*, const char*, const char*>;
-  struct LLMSetup : LLMSetupBase
-  {
-    using base = LLMSetupBase;
-    using base::base;
+const char* const JK_KEY              = "key";
+const char* const JK_EXEC             = "exec";
+const char* const JK_EXEC_FLAGS       = "execFlags";
+const char* const JK_RESPONSE_FILE    = "responseFile";
+const char* const JK_RESPONSE_FIELD   = "responseField";
+const char* const JK_SYSTEM_TEXT_FILE = "systemTextFile";
+const char* const JK_ROLE_OF_AI       = "roleOfAI";
+const char* const JK_HISTORY_FILE     = "historyFile";
+const char* const JK_API_KEY_NAME     = "apiKeyName";
+const char* const JK_PROMPT_FILE      = "promptFile";
+const char* const JK_MODEL_NAME       = "modelName";
+const char* const JK_ALT_NAMES        = "alternativeNames";
 
-    const char* script()         const { return std::get<0>(*this); }
-    const char* defaultModel()   const { return std::get<1>(*this); }
-    const char* responseFile()   const { return std::get<2>(*this); }
-    const char* responseField()  const { return std::get<3>(*this); }
-    const char* systemTextFile() const { return std::get<4>(*this); }
-    const char* roleOfAI()       const { return std::get<5>(*this); }
-    const char* queryFile()      const { return std::get<6>(*this); }
-  };
+const char* const JK_PF_FILENAME      = "filename";
+const char* const JK_PF_FORMAT        = "format";
+const char* const JK_HIST_ROLE_KEY    = "role";
+const char* const JK_HIST_CONTENT_KEY = "content";
 
-  using ModelSetup = std::unordered_map<llmtools::LLMProvider, LLMSetup>;
+StringView
+toStringView(const boost::json::value& val)
+{
+  const boost::json::string& s = val.as_string();
 
-  static const ModelSetup modelSetup
-      = { { llmtools::openai,     { "scripts/gpt4/exec-openai.sh", // script
-                                    "gpt-4o",                      // defaultModel
-                                    "response.json",               // responseFile
-                                    "choices[0].message.content",  // responseField
-                                    "",                            // systemTextFile
-                                    "assistant",                   // role
-                                    "query.json"                   // conversation history
-                                  }
-          },
-          { llmtools::claude,     { "scripts/claude/exec-claude.sh",
-                                    "claude-sonnet-4-5",
-                                    "response.json",
-                                    "content[0].text",
-                                    "system.txt",
-                                    "assistant",
-                                    "query.json"
-                                  }
-          },
-          { llmtools::ollama,     { "scripts/ollama/exec-ollama.sh",
-                                    "llama3.3",
-                                    "response.json",
-                                    "message.content",
-                                    "",
-                                    "assistant",
-                                    "query.json"
-                                  }
-          },
-          { llmtools::openrouter, { "scripts/openrouter/exec-openrouter.sh",
-                                    "google/gemini-2.0-flash-exp:free",
-                                    "response.json",
-                                    "message.content",
-                                    "",
-                                    "assistant",
-                                    "query.json"
-                                  }
-          },
-          { llmtools::llamaCli,   { "scripts/llama-cli/exec-llama.sh",
-                                    "-hf ggml-org/gemma-3-1b-it-GGUF",
-                                    "response.log",
-                                    "",
-                                    "system.txt",
-                                    "model",
-                                    "query.txt"
-                                  }
-          }
-        };
+  return StringView(s.begin(), s.size());
+}
 
+StringView
+fieldToStringView(const boost::json::object& val, const char* fieldName)
+{
+  return toStringView(val.at(fieldName));
+}
 
+Optional<StringView>
+fieldToStringViewOpt(const boost::json::object& val, const char* fieldName)
+{
+  auto pos = val.find(fieldName);
 
-bool fileExists(const std::string& fullPath)
+  if (pos != val.end())
+    return toStringView(pos->value());
+
+  return {};
+}
+
+struct LLMSetup
+{
+    LLMSetup(StringView key, const boost::json::value& cnf)
+    : val(cnf.as_object())
+    {
+      val[JK_KEY] = std::string(key);
+    }
+
+    StringView canonicalName()  const { return fieldToStringView(val, JK_KEY); }
+    StringView modelName()      const { return fieldToStringView(val, JK_MODEL_NAME); }
+    StringView responseFile()   const { return fieldToStringView(val, JK_RESPONSE_FILE); }
+    StringView responseField()  const { return fieldToStringView(val, JK_RESPONSE_FIELD); }
+    StringView roleOfAI()       const { return fieldToStringView(val, JK_ROLE_OF_AI); }
+    StringView historyFile()    const { return fieldToStringView(val, JK_HISTORY_FILE); }
+    StringView exec()           const { return fieldToStringView(val, JK_EXEC); }
+
+    Optional<StringView>
+    execFlags()                 const { return fieldToStringViewOpt(val, JK_EXEC_FLAGS); }
+
+    Optional<StringView>
+    systemTextFile() const { return fieldToStringViewOpt(val, JK_SYSTEM_TEXT_FILE); }
+
+    Optional<StringView>
+    API_key_name()   const { return fieldToStringViewOpt(val, JK_API_KEY_NAME); }
+
+    boost::json::value
+    promptFile()   const { return llmtools::loadField(val, JK_PROMPT_FILE, boost::json::value{}); }
+
+  private:
+    boost::json::object val;
+};
+
+bool
+fileExists(const std::string& fullPath)
 {
   std::ifstream f{fullPath.c_str()};
 
   return f.good();
 }
 
-bool endsWith(StringView str, StringView suffix)
+bool
+absolutePath(const std::string& path)
+{
+  return path.size() && (path.front() == '/');
+}
+
+bool
+endsWith(StringView str, StringView suffix)
 {
   return (  str.size() >= suffix.size()
          && std::equal(suffix.rbegin(), suffix.rend(), str.rbegin())
          );
 }
 
-bool isJsonFile(StringView filename)
+bool
+isJsonFile(StringView filename)
 {
   return endsWith(filename, ".json");
 }
 
-bool isTxtFile(StringView filename)
+bool
+isTxtFile(StringView filename)
 {
   return endsWith(filename, ".txt");
 }
 
-bool isLogFile(StringView filename)
+bool
+isLogFile(StringView filename)
 {
   return endsWith(filename, ".log");
 }
 
-std::string checkInvocation(StringView filename)
+std::string
+checkInvocation(StringView filename)
 {
-  std::string scriptFile{filename};
+  std::string LLMTOOLS_HOME = "${LLMTOOLS:HOME}";
+  std::string execFile{filename};
 
-  if (fileExists(scriptFile))
-    return scriptFile;
+  if (execFile.rfind(LLMTOOLS_HOME,0) == 0)
+    execFile = llmtoolsLibraryBasePath() + execFile.substr(LLMTOOLS_HOME.size());
+
+  if (!absolutePath(execFile))
+  {
+    std::string fullPath = boostprocess::search_path(execFile).string();
+
+    if (!fullPath.empty())
+      return fullPath;
+  }
+  else if (fileExists(execFile))
+    return execFile;
 
   std::stringstream err;
 
-  err << "Error: default script '" << filename << "' not found\n"
-      << "modify the configuration!"
+  err << "Error: default executable '" << filename << "' not found\n"
+      << "  looking for '" << execFile << "'\n"
       << std::endl;
 
-  return err.str();
+  throw std::runtime_error{err.str()};
 }
 
 
-/// separates a string \p s at whitespaces and appends them as individual
-///   command line arguments to a vector \p args.
-void splitArgs(const std::string& s, std::vector<std::string>& args)
+
+/// Separates a string \p s at whitespaces and appends them as individual
+///   command line arguments to a vector \p args. Strings within " quotes
+///   are not split and written out to args as single string while removing
+///   quotes at the beginning and end.
+/// \param  s a sequence of command line arguments
+/// \param  args a vector to which the parsed arguments will be appended
+/// \throws std::runtime_error if a quoted string is not properly closed
+/// \details
+///   If the string s contains a quoted string, such as "-H x" the whitespaces
+///     inside the quoted string are ignored.
+///   Escaped quotes (\") remain unchanged.
+void
+splitArgs(const std::string& s, std::vector<std::string>& args)
 {
-  std::istringstream all{s};
-  std::string        arg;
+  std::string current;
+  bool        inQuotes = false;
+  bool        escaped  = false;
 
-  while (all >> arg)
-    args.emplace_back(std::move(arg));
+  for (char c : s)
+  {
+    if (escaped)
+    {
+      current += '\\';
+      current += c;
+
+      escaped = false;
+    }
+    else if (c == '\\')
+    {
+      escaped = true;
+    }
+    else if (c == '"')
+    {
+      // Toggle quote mode
+      inQuotes = !inQuotes;
+    }
+    else if (std::isspace(static_cast<unsigned char>(c)) && !inQuotes)
+    {
+      // If we hit whitespace outside of quotes and have collected characters,
+      // store the current argument and reset
+      if (!current.empty())
+      {
+        std::string arg;
+
+        std::swap(arg, current);
+        args.push_back(std::move(arg));
+      }
+    }
+    else
+    {
+      // Add character to the current argument
+      current += c;
+    }
+  }
+
+  // Don't forget the last argument if there is one
+  if (!current.empty())
+    args.push_back(std::move(current));
+
+  // Check if we have unclosed quotes
+  if (inQuotes)
+    throw std::runtime_error("Unclosed quotes in input string '" + s + "'");
+
+  if (escaped)
+    throw std::runtime_error("Unprocessed escaped character at end of input string '" + s + "'");
 }
+
+
 
 /// returns the content of stream \p is as string.
 std::string
@@ -199,28 +326,22 @@ readTxtFile(StringView filename)
 
 
 /// extracts a json string with a known path from a json value.
-std::string jsonField(const json::value& val, StringView fld)
+const json::value&
+jsonElement(const json::value& val, StringView accessPath)
 {
-  //~ trace(std::cerr, '{', val, '}', "\n'", fld, '\n');
+  if (accessPath.empty())
+    return val;
 
-  if (fld.empty())
-  {
-    const json::string& content = val.as_string();
-    StringView    contView(content.begin(), content.size());
+  if (accessPath[0] == '.')
+    return jsonElement(val, accessPath.substr(1));
 
-    return std::string{contView};
-  }
-
-  if (fld[0] == '.')
-    return jsonField(val, fld.substr(1));
-
-  if (fld[0] == '[')
+  if (accessPath[0] == '[')
   {
     // must be an array index
-    const std::size_t   lim = fld.find_first_of("]");
+    const std::size_t   lim = accessPath.find_first_of("]");
     assert((lim > 0) && (lim != StringView::npos));
 
-    StringView          idx = fld.substr(1, lim-1);
+    StringView          idx = accessPath.substr(1, lim-1);
     int                 num = boost::lexical_cast<int>(idx);
     const json::array&  arr = val.as_array();
 
@@ -233,26 +354,29 @@ std::string jsonField(const json::value& val, StringView fld)
       //~ throw std::runtime_error{"Not a valid json array index (int expected)"};
 #endif /*CXX_20*/
 
-    return jsonField(arr.at(num), fld.substr(lim+1));
+    return jsonElement(arr.at(num), accessPath.substr(lim+1));
   }
 
-  const std::size_t pos = fld.find_first_of(".[");
+  const std::size_t pos = accessPath.find_first_of(".[");
 
   if (pos == StringView::npos)
-  {
-    const json::object& obj = val.as_object();
-
-    return jsonField(obj.at(fld), StringView{});
-  }
+    return val.as_object().at(accessPath);
 
   assert(pos != 0);
   const json::object& obj = val.as_object();
-  StringView          lhs = fld.substr(0, pos);
+  StringView          lhs = accessPath.substr(0, pos);
 
-  return jsonField(obj.at(lhs), fld.substr(pos));
+  return jsonElement(obj.at(lhs), accessPath.substr(pos));
 }
 
-StringView extractResponseFromLog(StringView text, StringView input)
+std::string
+jsonString(const json::value& val, StringView accessPath)
+{
+  return std::string(jsonElement(val, accessPath).as_string());
+}
+
+StringView
+extractResponseFromLog(StringView text, StringView input)
 {
   std::size_t const startOfInput = text.find(input);
   assert(startOfInput != StringView::npos);
@@ -261,7 +385,8 @@ StringView extractResponseFromLog(StringView text, StringView input)
 }
 
 
-StringView extractResponseFromLog(StringView text, StringView input, StringView delimiter)
+StringView
+extractResponseFromLog(StringView text, StringView input, StringView delimiter)
 {
   assert(delimiter.size());
 
@@ -277,8 +402,8 @@ createResponse(const llmtools::Settings& settings, StringView response)
 {
   json::object res;
 
-  res["role"]    = settings.roleOfAI;
-  res["content"] = response;
+  res[JK_HIST_ROLE_KEY]    = settings.roleOfAI();
+  res[JK_HIST_CONTENT_KEY] = response;
   return res;
 }
 
@@ -287,13 +412,13 @@ createResponse(const llmtools::Settings& settings, StringView response)
 json::object
 loadAIResponseJson(const llmtools::Settings& settings)
 {
-  json::value   output = llmtools::readJsonFile(settings.responseFile);
-  json::object  res = createResponse(settings, jsonField(output, settings.responseField));
+  json::value   output = llmtools::readJsonFile(settings.responseFile());
+  json::object  res = createResponse(settings, jsonString(output, settings.responseField()));
 
 #if 0
   try
   {
-    std::string stopReason = jsonField(output, "stop_reason");
+    std::string stopReason = jsonString(output, "stop_reason");
 
     res["stop_reason"] = stopReason;
   }
@@ -307,9 +432,9 @@ loadAIResponseJson(const llmtools::Settings& settings)
 json::object
 loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& query)
 {
-  std::string txt = readTxtFile(settings.responseFile);
+  std::string txt = readTxtFile(settings.responseFile());
 
-  if (isLogFile(settings.responseFile))
+  if (isLogFile(settings.responseFile()))
   {
     std::string history = llmtools::lastEntry(query) + "\nmodel";
 
@@ -323,10 +448,66 @@ loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& 
 json::object
 loadAIResponse(const llmtools::Settings& settings, const boost::json::value& query)
 {
-  if (isJsonFile(settings.responseFile))
+  if (isJsonFile(settings.responseFile()))
     return loadAIResponseJson(settings);
 
   return loadAIResponseTxt(settings, query);
+}
+
+std::string
+environmentVariable(const std::string& varname, std::string alt = {})
+{
+  if (varname.size())
+    if (const char* var = std::getenv(varname.c_str()))
+      return var;
+
+  return alt;
+}
+
+void
+writePromptFile( const std::string& promptFileName,
+                 boost::json::value structure,
+                 const llmtools::VariableMap& vars,
+                 const boost::json::value& query
+               )
+{
+  if (!isJsonFile(promptFileName))
+    return;
+
+  boost::json::object* obj = structure.if_object();
+  if (obj == nullptr) return;
+
+  boost::json::value&  format = obj->at(JK_PF_FORMAT);
+  boost::json::object& fmtobj = format.as_object();
+
+  for (auto& [key, value] : fmtobj)
+  {
+    boost::json::string* str = value.if_string();
+    if (str == nullptr) continue;
+
+    // \todo consider integrating json objects into text expansion if possible..
+    if (*str == "${LLMTOOLS:HISTORY}")
+      value = query;
+    else
+      *str = llmtools::expandText(std::string(*str), vars);
+  }
+
+  std::ofstream promptFile{promptFileName};
+
+  promptFile << format
+             << std::endl;
+}
+
+std::string
+fileNameOpt(const boost::json::value& structure, const std::string& alt)
+{
+  if (const boost::json::string* str = structure.if_string())
+    return std::string(*str);
+
+  if (const boost::json::object* obj = structure.if_object())
+    return llmtools::loadField(*obj, JK_PF_FILENAME, alt);
+
+  return alt;
 }
 
 
@@ -336,18 +517,37 @@ invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
 {
   storeQuery(settings, query);
 
-  //~ MeasureRuntime timer(globals.aiTime);
-  //~ trace(std::cerr, "CallAI: ", settings.invokeai, '\n');
+  std::string              promptFileName = fileNameOpt(settings.promptFile(), "");
+  llmtools::VariableMap    vars =
+      { {"LLMTOOLS:MODEL",            settings.modelName() },
+        {"LLMTOOLS:API_KEY",          environmentVariable(settings.apiKeyName()) },
+        {"LLMTOOLS:PROMPT_FILE",      promptFileName },
+        {"LLMTOOLS:HISTORY",          settings.historyFile() },
+        {"LLMTOOLS:RESPONSE_FILE",    settings.responseFile() },
+        {"LLMTOOLS:SYSTEM_TEXT_FILE", settings.systemTextFile() }
+      };
 
+  writePromptFile(promptFileName, settings.promptFile(), vars, query);
+
+  std::string              execFlags = llmtools::expandText(settings.execFlags(), vars);
   std::vector<std::string> args;
 
-  splitArgs(settings.invokeparams, args);
+  splitArgs(execFlags, args);
+
+  std::string const        redirectStdOut = ">";
+  std::string              stdlog;
+
+  if (args.size() && (args.back().rfind(redirectStdOut,0) == 0))
+  {
+    stdlog = args.back().substr(redirectStdOut.size());
+    args.pop_back();
+  }
 
   boost::asio::io_context  ios;
   std::future<std::string> outstr;
   std::future<std::string> errstr;
   std::future<int>         exitCode;
-  boostprocess::child      ai( settings.invokeai,
+  boostprocess::child      ai( settings.exec(),
                                boostprocess::args(args),
                                boostprocess::std_in.close(),
                                boostprocess::std_out > outstr,
@@ -358,16 +558,17 @@ invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
 
   ios.run();
 
-  //~ std::cout << outstr.get() << std::endl;
-  //~ std::cerr << errstr.get() << std::endl;
-
-  const int  ec      = exitCode.get();
-
-  //~ trace(std::cerr, "CallAI - exitcode: ", ec, '\n');
+  const int ec = exitCode.get();
 
   if (ec != 0)
+    throw std::runtime_error{"AI invocation error " + std::to_string(ec) + " " + errstr.get()};
+
+  if (stdlog.size())
   {
-    throw std::runtime_error{"AI invocation error: " + errstr.get()};
+    // assert stdlog == settings.responseFile() ?
+    std::ofstream log{stdlog};
+
+    log << outstr.get() << std::endl;
   }
 
   return loadAIResponse(settings, query);
@@ -393,7 +594,8 @@ struct CommandR
   // bool               withSystem = false;
 };
 
-std::ostream& operator<<(std::ostream& os, CommandR comr)
+std::ostream&
+operator<<(std::ostream& os, CommandR comr)
 {
   const json::array& arr = comr.value.as_array();
 
@@ -402,8 +604,8 @@ std::ostream& operator<<(std::ostream& os, CommandR comr)
     const json::object& obj = msg.as_object();
 
     // Extract role and content
-    std::string role    = jsonField(obj, "role");
-    std::string content = jsonField(obj, "content");
+    std::string role    = jsonString(obj, JK_HIST_ROLE_KEY);
+    std::string content = jsonString(obj, JK_HIST_CONTENT_KEY);
 
     assert(!role.empty() && !content.empty());
 
@@ -440,11 +642,13 @@ struct PromptVariable : PromptVariableBase
 PromptVariable
 nextVariable(std::string_view prompt, const llmtools::VariableMap& m)
 {
-  if (std::size_t pos = prompt.find("<<"); pos != std::string_view::npos)
+  if (std::size_t pos = prompt.find(VAR_PREFIX); pos != std::string_view::npos)
   {
-    if (std::size_t lim = prompt.find(">>", pos+2); lim != std::string_view::npos)
+    std::size_t postPrefix = pos + VAR_PREFIX.size();
+
+    if (std::size_t lim = prompt.find(VAR_SUFFIX, postPrefix); lim != std::string_view::npos)
     {
-      std::string_view cand = prompt.substr(pos+2, lim-(pos+2));
+      std::string_view cand = prompt.substr(postPrefix, lim-(postPrefix));
 
       if (m.find(std::string(cand)) != m.end())
         return PromptVariable{pos, cand};
@@ -474,13 +678,127 @@ bool isEmptyLine(std::string_view line)
                     );
 }
 
+/// merges the elements in the json objects \p lhs and \p rhs into a combined object.
+/// \param  lhs a json object
+/// \param  rhs a json object
+/// \result the merged json objects
+/// \throw  a std::invalid_argument exception if any of the input values are not of type
+//          boost::json::object.
+/// \throw  a runtime exception of \p lhs and \p rhs contain elements with the same key.
+boost::json::value
+mergeJson(boost::json::value lhs, boost::json::value rhs)
+{
+  // Validate that both inputs are objects
+  if (!lhs.is_object())
+    throw std::invalid_argument("Left-hand side input is not a JSON object");
 
+  if (!rhs.is_object())
+    throw std::invalid_argument("Right-hand side input is not a JSON object");
+
+  boost::json::object& lhsobj = lhs.as_object();
+
+  // Merge in the elements from rhs, checking for duplicates
+  for (auto& [key, value] : rhs.as_object())
+  {
+    // Check for duplicate keys
+    auto const pos = lhsobj.find(key);
+
+    if (pos != lhsobj.end())
+    {
+      std::stringstream err;
+
+      err << "Duplicate key found during JSON merge: " << key;
+      throw std::runtime_error(err.str());
+    }
+
+    // Add the key-value pair from rhs to the result
+    lhsobj.emplace(std::move(key), std::move(value));
+  }
+
+  return lhs;
 }
 
+
+/// returns the json object on \p config with a \key provider.
+/// \param config a json object
+/// \param provider the identifier of a subobject in \p config
+/// \return the subobject in \p config with key or alternative key matching \p provider.
+/// \throws std::invalid_argument if config is not a JSON object.
+/// \throws std::runtime_error no matching subobject can be identified.
+/// \details
+///   returns the subobject in \p config that has key with the same name as provider.
+///   if no such subobject exists, findProvider performs a case-insensitive match
+///   against a field 'alternative_names'. The field 'alternative_names'
+///   is an optional field in each subobject in \p config, and may be a string
+///   or an array of string.
+LLMSetup
+findProvider(const boost::json::object& config, const std::string& provider)
+{
+  // First, check for exact match with provider name
+  auto const pos = config.find(provider);
+
+  if (pos != config.end())
+    return LLMSetup(provider, pos->value());
+
+  // Check each subobject for 'alternative_names' field
+  for (const auto& [key, value] : config)
+  {
+    // skip non-object values
+    const boost::json::object* subObj = value.if_object();
+    if (subObj == nullptr)
+      continue;
+
+    auto const altPos = subObj->find(JK_ALT_NAMES);
+    if (altPos == subObj->end())
+      continue;
+
+    const boost::json::value& altNames = altPos->value();
+
+    if (const boost::json::string* str = altNames.if_string())
+    {
+      // If alternative_names is a string, check for case-insensitive match
+      if (boost::iequals(*str, provider))
+        return LLMSetup(key, value);
+    }
+    else if (const boost::json::array* arr = altNames.if_array())
+    {
+      // If alternative_names is an array, check each element
+      for (const auto& altName : *arr)
+      {
+        if (const boost::json::string* str = altName.if_string())
+          if (boost::iequals(*str, provider))
+            return LLMSetup(key, value);
+      }
+    }
+  }
+
+  // If we reach here, no provider was found
+  throw std::runtime_error("No matching provider found: " + provider);
+}
+
+LLMSetup
+findProvider(const llmtools::Configurations& config, const std::string& provider)
+{
+  return findProvider(config.as_object(), provider);
+}
+
+
+std::string
+toString(Optional<StringView> opt)
+{
+  if (opt) return std::string(*opt);
+
+  return {};
+}
+
+
+} // anonymous namespace
 
 namespace llmtools
 {
 
+const char* const LLMnone = "<none>";
+const char* const LLMerror = "<error!>";
 
 boost::json::value
 queryResponse(const Settings& settings, boost::json::value query)
@@ -500,25 +818,21 @@ readJsonStream(std::istream& is)
   boost::system::error_code  ec;
   boost::json::stream_parser p;
   std::string                line;
+  std::size_t                cnt = 0;
 
   while (std::getline(is, line))
   {
+    ++cnt;
     p.write(line, ec);
 
     if (ec)
-    {
-      //~ std::cerr << "ec = " << ec << std::endl;
-      throw std::runtime_error("unable to parse JSON file: " + line);
-    }
+      throw std::runtime_error("error on line line " + std::to_string(cnt) + "\n    line: " + line);
   }
 
   p.finish(ec);
 
   if (ec)
-  {
-    //~ std::cerr << "ec = " << ec << std::endl;
     throw std::runtime_error("unable to finish parsing JSON file");
-  }
 
   return p.release();
 }
@@ -534,7 +848,54 @@ readJsonFile(const std::string& fileName)
   if (!ifs.good())
     throw std::runtime_error{"File " + fileName + " is not accessible"};
 
-  return readJsonStream(ifs);
+  try
+  {
+    return readJsonStream(ifs);
+  }
+  catch (const std::runtime_error& e)
+  {
+    throw std::runtime_error(std::string(e.what()) + "\n    file: " + fileName);
+  }
+}
+
+std::ostream&
+operator<<(std::ostream& os, SettingsJsonFieldWriter wr)
+{
+  std::string prefix(wr.indent, ' ');
+
+  prefix.insert(0, 1, '\n');
+
+  return os << prefix << "\"" << JK_EXEC << "\":"             << boost::json::string(wr.settings.exec()) << ","
+            << prefix << "\"" << JK_EXEC_FLAGS << "\":"       << boost::json::string(wr.settings.execFlags()) << ","
+            << prefix << "\"" << JK_RESPONSE_FILE << "\":"    << boost::json::string(wr.settings.responseFile()) << ","
+            << prefix << "\"" << JK_RESPONSE_FIELD << "\":"   << boost::json::string(wr.settings.responseField()) << ","
+            << prefix << "\"" << JK_SYSTEM_TEXT_FILE << "\":" << boost::json::string(wr.settings.systemTextFile()) << ","
+            << prefix << "\"" << JK_ROLE_OF_AI << "\":"       << boost::json::string(wr.settings.roleOfAI()) << ","
+            << prefix << "\"" << JK_HISTORY_FILE << "\":"     << boost::json::string(wr.settings.historyFile()) << ","
+            << prefix << "\"" << JK_API_KEY_NAME << "\":"     << boost::json::string(wr.settings.apiKeyName()) << ","
+            << prefix << "\"" << JK_MODEL_NAME << "\":"       << boost::json::string(wr.settings.modelName()) << ","
+            << prefix << "\"" << JK_PROMPT_FILE << "\":"      << wr.settings.promptFile()
+            ;
+}
+
+
+Settings
+settings(const json::value& cnf, const Settings& oldSettings)
+{
+  Settings res;
+
+  res.exec()           = loadField(cnf, JK_EXEC,             oldSettings.exec());
+  res.execFlags()      = loadField(cnf, JK_EXEC_FLAGS,       oldSettings.execFlags());
+  res.responseFile()   = loadField(cnf, JK_RESPONSE_FILE,    oldSettings.responseFile());
+  res.responseField()  = loadField(cnf, JK_RESPONSE_FIELD,   oldSettings.responseField());
+  res.systemTextFile() = loadField(cnf, JK_SYSTEM_TEXT_FILE, oldSettings.systemTextFile());
+  res.roleOfAI()       = loadField(cnf, JK_ROLE_OF_AI,       oldSettings.roleOfAI());
+  res.historyFile()    = loadField(cnf, JK_HISTORY_FILE,     oldSettings.historyFile());
+  res.apiKeyName()     = loadField(cnf, JK_API_KEY_NAME,     oldSettings.apiKeyName());
+  res.modelName()      = loadField(cnf, JK_MODEL_NAME,       oldSettings.modelName());
+  res.promptFile()     = loadField(cnf, JK_PROMPT_FILE,      oldSettings.promptFile());
+
+  return res;
 }
 
 
@@ -555,51 +916,59 @@ void storeQuery(const std::string& historyfile, const boost::json::value& conver
 
 void storeQuery(const Settings& settings, const json::value& history)
 {
-  storeQuery(settings.historyFile, history);
+  storeQuery(settings.historyFile(), history);
 }
 
 
-std::string defaultModel(LLMProvider provider)
+std::string defaultModel(const Configurations& configs, const LLMProvider& provider)
 {
-  return modelSetup.at(provider).defaultModel();
+  return std::string(findProvider(configs, provider).modelName());
 }
 
-// setup connection for curl scripts
-Settings configure(const std::string& basePath, LLMProvider provider, const std::string& llmmodel)
+Configurations
+initializeWithDefault(Configurations current)
 {
-  const LLMSetup& setup    = modelSetup.at(provider);
-  std::string     invokeai = basePath + "/" + setup.script();
+  return mergeJson(std::move(current), readJsonFile(llmtoolsLibraryBasePath() + "/etc/llmtools/llmtools-default.json"));
+}
+
+Configurations
+initializeWithConfigFile(const std::string& configFileName, Configurations current)
+{
+  return mergeJson(std::move(current), readJsonFile(configFileName));
+}
+
+Settings
+configure(const Configurations& configs, const std::string& provider, const std::string& llmmodel)
+{
+  const LLMSetup& setup    = findProvider(configs, provider);
+  std::string     exeName  = checkInvocation(setup.exec());
   std::string     model    = llmmodel;
 
   if (model.empty())
-    model = setup.defaultModel();
+    model = std::string(setup.modelName());
 
-  //~ settings.llmSettings.invokeai       = invokeai;
-  //~ settings.llmSettings.responseFile   = "response.json";
-  //~ settings.llmSettings.responseField  = setup.responseField();
-  //~ settings.llmSettings.systemTextFile = setup.systemTextFile();
-  //~ settings.llmSettings.roleOfAI       = "assistant";
-  //~ settings.llmSettings.invokeai       = invokeai + " " + model;
-
-  return { checkInvocation(invokeai),
+  return { exeName,
+           toString(setup.execFlags()),
+           std::string(setup.responseFile()),
+           std::string(setup.responseField()),
+           std::string(setup.roleOfAI()),
+           toString(setup.systemTextFile()),
+           std::string(setup.historyFile()),
+           toString(setup.API_key_name()),
            model,
-           setup.responseFile(),
-           setup.responseField(),
-           setup.roleOfAI(),
-           setup.systemTextFile(),
-           setup.queryFile()
+           setup.promptFile()
          };
 }
 
 
-  /// gets the last response from the \p conversationHistory
+/// gets the last response from the \p conversationHistory
 std::string
 lastEntry(const boost::json::value& conversationHistory)
 {
   const json::array&  arr = conversationHistory.as_array();
   const json::value&  last = arr.back();
   const json::object& obj = last.as_object();
-  const json::string  str = obj.at("content").as_string();
+  const json::string  str = obj.at(JK_HIST_CONTENT_KEY).as_string();
 
   return std::string(str.data(), str.size());
 }
@@ -610,18 +979,18 @@ createConversationHistory(const Settings& settings, const std::string& systemTex
 {
   json::array res;
 
-  if (settings.systemTextFile.empty())
+  if (settings.systemTextFile().empty())
   {
     json::object line;
 
-    line["role"]    = "system";
-    line["content"] = systemText;
+    line[JK_HIST_ROLE_KEY]    = "system";
+    line[JK_HIST_CONTENT_KEY] = systemText;
 
     res.emplace_back(std::move(line));
   }
   else
   {
-    std::ofstream ofs{settings.systemTextFile};
+    std::ofstream ofs{settings.systemTextFile()};
 
     ofs << systemText;
   }
@@ -636,67 +1005,52 @@ appendPrompt(boost::json::value conversationHistory, const std::string& prompt)
   json::array& convHistory = conversationHistory.as_array();
   json::object promptValue;
 
-  promptValue["role"]    = "user";
-  promptValue["content"] = prompt;
+  promptValue[JK_HIST_ROLE_KEY]    = "user";
+  promptValue[JK_HIST_CONTENT_KEY] = prompt;
 
   convHistory.emplace_back(std::move(promptValue));
   return conversationHistory;
 }
 
-LLMProvider provider(const std::string& providerName)
+LLMProvider
+provider(const Configurations& configs, const std::string& providerName)
 {
-  if (  (boost::iequals(providerName, "openai"))
-     || (boost::iequals(providerName, "chatgpt"))
-     )
-    return openai;
+  LLMSetup setup = findProvider(configs, providerName);
 
-  if (  (boost::iequals(providerName, "anthropic"))
-     || (boost::iequals(providerName, "claude"))
-     )
-    return claude;
+  if (setup.API_key_name())
+  {
+    // check if the API key is defined
+    std::string keyName = std::string(*setup.API_key_name());
 
-  if (boost::iequals(providerName, "openrouter"))
-    return openrouter;
+    if (std::getenv(keyName.c_str()) == nullptr)
+      throw std::runtime_error{"API KEY '" + keyName + "' is undefined in environment."};
+  }
 
-  if (boost::iequals(providerName, "ollama"))
-    return ollama;
-
-  if (  (boost::iequals(providerName, "llamacli"))
-     || (boost::iequals(providerName, "llama-cli"))
-     )
-    return llamaCli;
-
-  if (  (boost::iequals(providerName, "custom"))
-     || (boost::iequals(providerName, "user-defined"))
-     || (boost::iequals(providerName, "userdefined"))
-     )
-   return LLMnone;
-
-  return LLMerror;
+  return LLMProvider(setup.canonicalName());
 }
-
 
 /// replaces known placeholders with their text
 std::string
-expandPrompt(const std::string& rawprompt, const VariableMap& m)
+expandText(const std::string& txt, const VariableMap& m)
 {
-  std::stringstream txt;
-  std::string_view  prompt = rawprompt;
-  PromptVariable    var    = nextVariable(prompt, m);
+  std::stringstream  res;
+  std::string_view   prompt   = txt;
+  PromptVariable     var      = nextVariable(prompt, m);
+  const std::uint8_t varExtra = VAR_PREFIX.size() + VAR_SUFFIX.size();
 
   while (var.token().size() != 0)
   {
-    const std::size_t prefixlen = var.offsetInString() + var.token().size() + 4 /* "<<" and ">>" */;
+    const std::size_t varLen = var.offsetInString() + var.token().size() + varExtra;
 
-    txt << prompt.substr(0, var.offsetInString())
+    res << prompt.substr(0, var.offsetInString())
         << m.at(std::string(var.token()));
 
-    prompt.remove_prefix(prefixlen);
+    prompt.remove_prefix(varLen);
     var = nextVariable(prompt, m);
   }
 
-  txt << prompt;
-  return txt.str();
+  res << prompt;
+  return res.str();
 }
 
 
@@ -896,7 +1250,9 @@ printUnescaped(std::ostream& os, const std::string& srccode)
   char        last = ' ';
   bool        lastIsLineBreak = false;
 
-  // print to os while handling escaped characters
+  // print to os while handling (some) escaped characters
+  //   some escaped characters are commented are not handled in order not
+  //   to distort doxygen marks.
   for (char ch : code)
   {
     lastIsLineBreak = false;
@@ -915,8 +1271,8 @@ printUnescaped(std::ostream& os, const std::string& srccode)
                    lastIsLineBreak = true;
                    break;
 
-        case 't':  os << "  ";
-                   break;
+        //~ case 't':  os << "  ";
+                   //~ break;
 
         //~ case 'a':  /* bell */
         //~ case 'v':  /* vertical tab */
@@ -951,6 +1307,79 @@ printUnescaped(std::ostream& os, const std::string& srccode)
   return linecnt;
 }
 
+/// queries a string field from a JSON object.
+std::string
+loadField(const json::value& obj, const std::string& path, const std::string& alt)
+{
+  try
+  {
+    return jsonString(obj, path);
+  }
+  catch (...) {}
 
+  return alt;
+}
+
+
+/// queries a boolean field from a JSON object.
+bool
+loadField(const json::value& obj, const std::string& path, bool alt)
+{
+  try
+  {
+    const json::value& val = jsonElement(obj, path);
+
+    if (const bool* bp = val.if_bool())
+      return *bp;
+
+    if (const std::int64_t* ip = val.if_int64())
+      return *ip;
+
+    if (const std::uint64_t* up = val.if_uint64())
+      return *up;
+  }
+  catch (...) {}
+
+  return alt;
+}
+
+/// queries an int64_t field from a JSON object.
+std::int64_t
+loadField(const json::value& obj, const std::string& path, std::int64_t alt)
+{
+  try
+  {
+    const json::value& val = jsonElement(obj, path);
+
+    if (const std::int64_t* ip = val.if_int64())
+      return *ip;
+
+    if (const std::uint64_t* up = val.if_uint64())
+    {
+      if (*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()))
+        throw std::runtime_error("uint64_t value exceeds int64_t range.");
+
+      return *up;
+    }
+
+    if (const bool* bp = val.if_bool())
+      return *bp;
+  }
+  catch (...) {}
+
+  return alt;
+}
+
+boost::json::value
+loadField(const json::value& obj, const std::string& path, boost::json::value alt)
+{
+  try
+  {
+    return jsonElement(obj, path);
+  }
+  catch (...) {}
+
+  return alt;
+}
 
 }

@@ -19,6 +19,8 @@
 
 #include "tool_version.hpp"
 
+#include "llmtools.hpp"
+
 namespace json = boost::json;
 
 namespace
@@ -38,119 +40,17 @@ getCmdlineArgs(char** beg, char** lim)
   return std::vector<std::string>(beg, lim);
 }
 
-json::value
-parseJsonLine(std::string line)
-{
-  json::stream_parser p;
-  boost::system::error_code ec;
-
-  p.write(line.c_str(), line.size(), ec);
-
-  if (ec) return nullptr;
-
-  p.finish(ec);
-  if (ec) return nullptr;
-
-  return p.release();
-}
-
-json::value
-readJsonFile(std::istream& is)
-{
-  // adapted from the boost json documentation:
-  //   https://www.boost.org/doc/libs/1_85_0/libs/json/doc/html/json/input_output.html#json.input_output.parsing
-
-  boost::system::error_code  ec;
-  boost::json::stream_parser p;
-  std::string                line;
-
-  while (std::getline(is, line))
-  {
-    p.write(line, ec);
-
-    if (ec)
-    {
-      std::cerr << ec << std::endl;
-      throw std::runtime_error("unable to parse JSON file: " + line);
-    }
-  }
-
-  p.finish(ec);
-
-
-  if (ec)
-  {
-    std::cerr << ec << std::endl;
-    throw std::runtime_error("unable to finish parsing JSON file");
-  }
-
-  return p.release();
-}
-
-
-
-std::string_view
-loadField(json::object& cnfobj, std::string fld, const std::string& alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-    return pos->value().as_string();
-
-  return alt;
-}
-
-bool loadField(json::object& cnfobj, std::string fld, bool alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-    return pos->value().as_bool();
-
-  return alt;
-}
-
-std::int64_t loadField(json::object& cnfobj, std::string fld, std::int64_t alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-  {
-    if (std::int64_t* ip = pos->value().if_int64())
-      return *ip;
-
-    if (std::uint64_t* up = pos->value().if_uint64())
-    {
-      assert(*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()));
-      return *up;
-    }
-  }
-
-  return alt;
-}
-
-
-
 Settings loadConfig(const std::string& configFileName)
 {
-  Settings      settings;
-  std::ifstream configFile{configFileName};
-
-  if (!configFile.good())
-  {
-    std::cerr << "The file " << configFileName << " is NOT ACCESSIBLE (or does not exist.)"
-              << std::endl;
-    exit(1);
-  }
+  Settings settings;
 
   try
   {
-    json::value   cnf    = readJsonFile(configFile);
-    json::object& cnfobj = cnf.as_object();
+    json::value   cnf    = llmtools::readJsonFile(configFileName);
     Settings      config;
 
-    config.validate = loadField(cnfobj, "validate", config.validate);
-    config.timing   = loadField(cnfobj, "timing",   config.timing);
+    config.validate = llmtools::loadField(cnf, "validate", config.validate);
+    config.timing   = llmtools::loadField(cnf, "timing",   config.timing);
 
     settings = std::move(config);
   }
@@ -235,4 +135,3 @@ int main(int argc, char** argv)
   processOutput(settings, cmdlnargs.outputFileName);
   return 0;
 }
-

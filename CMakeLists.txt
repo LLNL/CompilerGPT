@@ -1,184 +1,177 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.26)
+project(llmtools)
 
-
-# Set project name
-project(compgpt)
-
-##
-## setup compilation flags
-
-# Set C++ standard
+# Set C++ version
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG=1")
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb -march=native")
+# Set compiler flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic -O3 -march=native -DNDEBUG=1")
 
-add_compile_options(-Wall -Wextra -pthread)
+# Set default install prefix if not specified
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "/usr/local" CACHE PATH "Installation prefix" FORCE)
+endif()
 
-include_directories("${CMAKE_SOURCE_DIR}/include")
+# Set RPATH settings
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+# Try to find Boost - requiring 1.79.0 or higher
+find_package(Boost 1.79.0 COMPONENTS program_options filesystem atomic json container QUIET)
 
-##
-## setup PThreads
-
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-
-##
-## setup BOOST
-
-# note, consider using remodeling this after https://github.com/boostorg/cmake
-
-include(ExternalProject)
-
-# Download and configure Boost
-ExternalProject_Add(
-    boost_external
-    URL https://github.com/boostorg/boost/releases/download/boost-1.84.0/boost-1.84.0.tar.xz
-    PREFIX ${CMAKE_BINARY_DIR}/boost
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    LOG_DOWNLOAD ON
-    LOG_UPDATE ON
-    LOG_CONFIGURE ON
-    LOG_BUILD ON
+# Include directories and library setup
+include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# Get Boost source directory
-ExternalProject_Get_Property(boost_external source_dir)
-set(BOOST_ROOT ${source_dir})
-set(BOOST_INCLUDE_DIR 
-  ${source_dir}/libs/algorithm/include
-  ${source_dir}/libs/align/include
-  ${source_dir}/libs/asio/include
-  ${source_dir}/libs/assert/include
-  ${source_dir}/libs/bind/include
-  ${source_dir}/libs/concept_check/include/ 
-  ${source_dir}/libs/config/include/ 
-  ${source_dir}/libs/container/include/ 
-  ${source_dir}/libs/container_hash/include/ 
-  ${source_dir}/libs/core/include/ 
-  ${source_dir}/libs/date_time/include
-  ${source_dir}/libs/describe/include
-  ${source_dir}/libs/detail/include
-  ${source_dir}/libs/filesystem/include
-  ${source_dir}/libs/function/include
-  ${source_dir}/libs/functional/include
-  ${source_dir}/libs/fusion/include
-  ${source_dir}/libs/integer/include
-  ${source_dir}/libs/intrusive/include
-  ${source_dir}/libs/io/include
-  ${source_dir}/libs/iterator/include
-  ${source_dir}/libs/json/include
-  ${source_dir}/libs/lexical_cast/include
-  ${source_dir}/libs/move/include
-  ${source_dir}/libs/mp11/include
-  ${source_dir}/libs/mpl/include
-  ${source_dir}/libs/numeric/conversion/include
-  ${source_dir}/libs/optional/include
-  ${source_dir}/libs/predef/include
-  ${source_dir}/libs/preprocessor/include
-  ${source_dir}/libs/process/include
-  ${source_dir}/libs/range/include
-  ${source_dir}/libs/smart_ptr/include
-  ${source_dir}/libs/static_assert/include
-  ${source_dir}/libs/system/include
-  ${source_dir}/libs/tokenizer/include
-  ${source_dir}/libs/throw_exception/include
-  ${source_dir}/libs/type_traits/include
-  ${source_dir}/libs/type_index/include
-  ${source_dir}/libs/utility/include
-  ${source_dir}/libs/variant2/include
-  ${source_dir}/libs/winapi/include
+# Set library output path for build
+set(LIBRARY_OUTPUT_PATH ${CMAKE_CURRENT_SOURCE_DIR}/lib)
+
+# Define the shared library
+add_library(llmtools SHARED src/llmtools.cc)
+set_target_properties(llmtools PROPERTIES
+    SOVERSION 1
+    VERSION 1.0.0
 )
 
-# for program_options -- not link-only
-# ${source_dir}/libs/any/include
-# ${source_dir}/libs/program_options/include
+# Define binaries
+set(BINARIES compgpt logfilter prettyjson code-assist test-llmtools)
+
+# If Boost is not found, download and build it
+if(NOT Boost_FOUND)
+    include(ExternalProject)
+    set(BOOST_VERSION 1.84.0)
+    set(BOOST_URL "https://github.com/boostorg/boost/releases/download/boost-${BOOST_VERSION}/boost-${BOOST_VERSION}.tar.xz")
+    set(BOOST_INSTALL_DIR "${CMAKE_BINARY_DIR}/boost-install")
+
+    message(STATUS "Boost not found. Will download and build Boost ${BOOST_VERSION}")
+
+    ExternalProject_Add(
+        boost_external
+        URL ${BOOST_URL}
+        URL_HASH SHA256=2e64e5d79a738d0fa6fb546c6e5c2bd28f88d268a2a080546f74e5ff98f29d0e
+        PREFIX "${CMAKE_BINARY_DIR}/boost-src"
+        CONFIGURE_COMMAND ./bootstrap.sh --prefix=${BOOST_INSTALL_DIR} --with-libraries=program_options,filesystem,atomic,json,container,system
+        BUILD_COMMAND ./b2 install --prefix=${BOOST_INSTALL_DIR} link=shared threading=multi variant=release
+        BUILD_IN_SOURCE 1
+        INSTALL_COMMAND ""
+    )
+
+    # Set paths for the built boost
+    set(BOOST_ROOT ${BOOST_INSTALL_DIR})
+
+    # Add include directory to our targets
+    target_include_directories(llmtools PRIVATE "${BOOST_INSTALL_DIR}/include")
+
+    # Add dependencies
+    add_dependencies(llmtools boost_external)
+
+    # Setup link flags for the library
+    target_link_directories(llmtools PRIVATE "${BOOST_INSTALL_DIR}/lib")
+    target_link_libraries(llmtools
+        -lboost_program_options
+        -lboost_filesystem
+        -lboost_atomic
+        -lboost_json
+        -lboost_container
+        -lboost_system
+        dl
+    )
+
+    # Setup executables
+    foreach(binary ${BINARIES})
+        add_executable(${binary} src/${binary}.cc)
+        target_include_directories(${binary} PRIVATE "${BOOST_INSTALL_DIR}/include")
+        target_link_directories(${binary} PRIVATE "${BOOST_INSTALL_DIR}/lib" "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+        target_link_libraries(${binary}
+            llmtools
+            -lboost_program_options
+            -lboost_filesystem
+            -lboost_atomic
+            -lboost_json
+            -lboost_container
+            -lboost_system
+            pthread
+        )
+        add_dependencies(${binary} boost_external)
+        set_target_properties(${binary} PROPERTIES
+            OUTPUT_NAME "${binary}.bin"
+        )
+    endforeach()
+
+    # For development use (not installed), set RPATH to find the libraries
+    set_target_properties(llmtools PROPERTIES INSTALL_RPATH "${BOOST_INSTALL_DIR}/lib")
+    foreach(binary ${BINARIES})
+        set_target_properties(${binary} PROPERTIES INSTALL_RPATH "${BOOST_INSTALL_DIR}/lib;${CMAKE_CURRENT_SOURCE_DIR}/lib")
+    endforeach()
+
+    # Also install the Boost libraries we downloaded
+    install(DIRECTORY ${BOOST_INSTALL_DIR}/lib/
+            DESTINATION lib
+            FILES_MATCHING PATTERN "*.so*")
+
+else()
+    # Using system Boost
+    include_directories(${Boost_INCLUDE_DIRS})
+
+    target_link_libraries(llmtools
+        ${Boost_PROGRAM_OPTIONS_LIBRARY}
+        ${Boost_FILESYSTEM_LIBRARY}
+        ${Boost_ATOMIC_LIBRARY}
+        ${Boost_JSON_LIBRARY}
+        ${Boost_CONTAINER_LIBRARY}
+        ${Boost_SYSTEM_LIBRARY}
+        dl
+    )
+
+    # Setup executables with system Boost
+    foreach(binary ${BINARIES})
+        add_executable(${binary} src/${binary}.cc)
+        target_link_libraries(${binary}
+            llmtools
+            ${Boost_PROGRAM_OPTIONS_LIBRARY}
+            ${Boost_FILESYSTEM_LIBRARY}
+            ${Boost_ATOMIC_LIBRARY}
+            ${Boost_JSON_LIBRARY}
+            ${Boost_CONTAINER_LIBRARY}
+            ${Boost_SYSTEM_LIBRARY}
+            pthread
+        )
+        set_target_properties(${binary} PROPERTIES
+            OUTPUT_NAME "${binary}.bin"
+        )
+    endforeach()
+
+    # For development use (not installed), set RPATH to find the libraries
+    set_target_properties(llmtools PROPERTIES INSTALL_RPATH "${Boost_LIBRARY_DIRS}")
+    foreach(binary ${BINARIES})
+        set_target_properties(${binary} PROPERTIES INSTALL_RPATH "${Boost_LIBRARY_DIRS};${CMAKE_CURRENT_SOURCE_DIR}/lib")
+    endforeach()
+endif()
+
+include(GNUInstallDirs)
+
+# Install headers, library and executables
+install(DIRECTORY include/ DESTINATION include)
+install(TARGETS llmtools
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+foreach(binary ${BINARIES})
+    install(TARGETS ${binary}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+endforeach()
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/etc/llmtools/"
+        DESTINATION "etc/llmtools")
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+        DESTINATION "include")
 
 
-##
-## Target: libllmtools.a
 
-add_library(llmtools STATIC src/llmtools.cc)
-
-target_include_directories(llmtools PRIVATE ${BOOST_INCLUDE_DIR})
-
-add_dependencies(llmtools boost_external)
-
-
-##
-## Target: compgpt.bin
-
-# Add executable using the source file from dependencies
-add_executable(compgpt.bin src/compgpt.cc)
-
-# Set include directories including Boost headers
-target_include_directories(compgpt.bin PRIVATE ${BOOST_INCLUDE_DIR})
-target_link_libraries(compgpt.bin PRIVATE Threads::Threads)
-target_link_libraries(compgpt.bin PRIVATE llmtools)
-
-# Make sure Boost is downloaded before building the executable
-add_dependencies(compgpt.bin boost_external)
-
-
-##
-## Target: logfilter.bin
-
-# Add executable using the source file from dependencies
-add_executable(logfilter.bin src/logfilter.cc)
-
-# Set include directories including Boost headers
-target_include_directories(logfilter.bin PRIVATE ${BOOST_INCLUDE_DIR})
-
-# Make sure Boost is downloaded before building the executable
-add_dependencies(logfilter.bin boost_external)
-
-##
-## Target: prettyjson.bin
-
-# Add executable using the source file from dependencies
-add_executable(prettyjson.bin src/prettyjson.cc)
-
-target_link_libraries(prettyjson.bin PRIVATE llmtools)
-
-# Set include directories including Boost headers
-target_include_directories(prettyjson.bin PRIVATE ${BOOST_INCLUDE_DIR})
-
-# Make sure Boost is downloaded before building the executable
-add_dependencies(prettyjson.bin boost_external)
-
-
-
-##
-## Target: prettyjson.bin
-
-# Add executable using the source file from dependencies
-add_executable(code-assist.bin src/code-assist.cc)
-
-target_link_libraries(code-assist.bin PRIVATE llmtools)
-
-# Set include directories including Boost headers
-target_include_directories(code-assist.bin PRIVATE ${BOOST_INCLUDE_DIR})
-
-# Make sure Boost is downloaded before building the executable
-add_dependencies(code-assist.bin boost_external)
-
-
-
-##
-## Target: test-llmtools.bin
-
-# Add executable using the source file from dependencies
-#add_executable(test-llmtools.bin src/test-llmtools.cc)
-
-#target_link_libraries(test-llmtools.bin PRIVATE llmtools)
-
-# Set include directories including Boost headers
-#target_include_directories(test-llmtools.bin PRIVATE ${BOOST_INCLUDE_DIR})
-
-# Make sure Boost is downloaded before building the executable
-#add_dependencies(test-llmtools.bin boost_external)
-
+# Installation message
+install(CODE "message(STATUS \"Installation complete.\")")

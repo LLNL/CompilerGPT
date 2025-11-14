@@ -17,9 +17,8 @@
 #include <chrono>
 #include <ctime>
 #include <boost/json.hpp>
-// #include <boost/program_options.hpp>
 
-#include "llmtools.h"
+#include "llmtools.hpp"
 
 
 struct CoderData
@@ -31,14 +30,13 @@ struct CoderData
 
 struct Settings
 {
-  llmtools::Settings tools;
-  std::string        systemMsg    = "You are a compiler expert and an experienced C++ programmer.";
-  std::string        langMarker   = "cpp";
-  std::string        historyFile  = "query.json";
-  std::string        provider     = "claude";
-  std::string        model;
-  std::string        libRoot;
-  bool               printConfig  = false;
+  llmtools::Settings       tools;
+  std::string              systemMsg    = "You are a compiler expert and an experienced C++ programmer.";
+  std::string              langMarker   = "cpp";
+  std::string              historyFile  = "query.json";
+  std::string              provider     = "claude";
+  std::vector<std::string> configFiles  = {};
+  bool                     printConfig  = false;
 };
 
 
@@ -107,7 +105,7 @@ prepareConversationHistory(const Settings& settings, const CoderData& data)
 
   if (data.followup)
   {
-    res = llmtools::readJsonFile(settings.tools.historyFile);
+    res = llmtools::readJsonFile(settings.tools.historyFile());
   }
   else
   {
@@ -123,8 +121,14 @@ prepareConversationHistory(const Settings& settings, const CoderData& data)
 boost::json::value
 queryResponse(const Settings& settings, boost::json::value history)
 {
-  //~ std::cerr << history << std::endl;
-  //~ return history;
+  const bool NO_RESPONSE_FOR_TESTING = false;
+
+  if (NO_RESPONSE_FOR_TESTING)
+  {
+    std::cerr << "queryResponse" << history << std::endl;
+    return history;
+  }
+
   return queryResponse(settings.tools, std::move(history));
 }
 
@@ -137,21 +141,13 @@ storeHistory(const Settings& settings, const boost::json::value& history)
 void
 printResponse(std::ostream& os, const Settings&, const boost::json::value& history)
 {
-  std::vector<llmtools::CodeSection> codeSections = llmtools::extractCodeSections(llmtools::lastEntry(history));
-
-  for (const llmtools::CodeSection& code : codeSections)
+  for (const llmtools::CodeSection& code : llmtools::extractCodeSections(llmtools::lastEntry(history)))
   {
     llmtools::printUnescaped(os, code.code());
     os << std::endl;
   }
 }
 
-
-/// returns the absolute path for an existing file path \p filename.
-std::filesystem::path absolutePath(std::string_view filename)
-{
-  return std::filesystem::absolute(std::filesystem::path{filename}).remove_filename();
-}
 
 /// queries a string field from a JSON object.
 std::string_view
@@ -172,32 +168,32 @@ parseConfigFile(std::string_view configFileName, Settings settings)
   try
   {
     Settings             config = settings;
+
     boost::json::value   cnf    = llmtools::readJsonFile(std::string(configFileName));
     boost::json::object& cnfobj = cnf.as_object();
 
-    {
-      boost::json::value& llmcnf     = cnfobj["tools"];
-      boost::json::object& llmcnfobj = llmcnf.as_object();
-
-      config.tools.invokeai       = loadField(llmcnfobj, "invokeai",        config.tools.invokeai);
-      config.tools.responseFile   = loadField(llmcnfobj, "responseFile",    config.tools.responseFile);
-      config.tools.responseField  = loadField(llmcnfobj, "responseField",   config.tools.responseField);
-      config.tools.systemTextFile = loadField(llmcnfobj, "systemTextFile",  config.tools.systemTextFile);
-      config.tools.roleOfAI       = loadField(llmcnfobj, "roleOfAI",        config.tools.roleOfAI);
-    }
+    config.tools = llmtools::settings(cnfobj["tools"].as_object(), config.tools);
 
     config.systemMsg      = loadField(cnfobj, "systemMsg",       config.systemMsg);
     config.langMarker     = loadField(cnfobj, "langMarker",      config.langMarker);
     config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
-    config.model          = loadField(cnfobj, "model",           config.model);
     config.provider       = loadField(cnfobj, "provider",        config.provider);
 
-    config.tools.historyFile = config.historyFile;
+    config.tools.historyFile() = config.historyFile;
 
     settings = config;
   }
+  catch (const std::runtime_error& err)
+  {
+    std::cerr << "Error in config file: " << configFileName
+              << std::endl
+              << err.what()
+              << std::endl;
+  }
   catch (...)
   {
+    std::cerr << "Unknown error in config file: " << configFileName
+              << std::endl;
   }
 
   return settings;
@@ -209,16 +205,11 @@ unparseConfigFile(std::ostream& os, const Settings& settings)
   os << "{"
      << "\n  \"tools\":"
      << "\n     {"
-     << "\n       \"invokeai\":\"" << settings.tools.invokeai << "\","
-     << "\n       \"responseFile\":\"" << settings.tools.responseFile << "\","
-     << "\n       \"responseField\":\"" << settings.tools.responseField << "\","
-     << "\n       \"systemTextFile\":\"" << settings.tools.systemTextFile << "\","
-     << "\n       \"roleOfAI\":\"" << settings.tools.roleOfAI << "\""
+     << llmtools::SettingsJsonFieldWriter{settings.tools, 8}
      << "\n     },"
      << "\n  \"systemMsg\":\"" << settings.systemMsg << "\","
      << "\n  \"langMarker\":\"" << settings.langMarker << "\","
      << "\n  \"historyFile\":\"" << settings.historyFile << "\","
-     << "\n  \"model\":\"" << settings.model << "\","
      << "\n  \"provider\":\"" << settings.provider << "\""
      << "\n}"
      << std::endl;
@@ -228,58 +219,51 @@ unparseConfigFile(std::ostream& os, const Settings& settings)
 /// Functor processing command line arguments
 struct CommandLineArgumentParser
 {
-  explicit
-  CommandLineArgumentParser(std::filesystem::path absPath)
-  : opts()
-  {
-    opts.libRoot = std::move(absPath);
-  }
-
   void operator()(std::string_view arg)
   {
-    if (arg.rfind(pconfigfile, 0) != std::string::npos)
-      opts = parseConfigFile(arg.substr(pconfigfile.size()), std::move(opts));
-    else if (arg.rfind(plibpath, 0) != std::string::npos)
-      opts.libRoot = arg.substr(plibpath.size());
+    if (arg.rfind(pconfigFile, 0) != std::string::npos)
+      opts = parseConfigFile(arg.substr(pconfigFile.size()), std::move(opts));
     else if (arg.rfind(pprovider, 0) != std::string::npos)
       opts.provider = arg.substr(pprovider.size());
     else if (arg.rfind(pmodel, 0) != std::string::npos)
-      opts.model = arg.substr(pmodel.size());
+      opts.tools.modelName() = arg.substr(pmodel.size());
     else if (arg.rfind(plang, 0) != std::string::npos)
       opts.langMarker = arg.substr(plang.size());
     else if (arg.rfind(phistoryFile, 0) != std::string::npos)
-      opts.tools.historyFile = opts.historyFile = arg.substr(phistoryFile.size());
+      opts.tools.historyFile() = opts.historyFile = arg.substr(phistoryFile.size());
     else if (arg.rfind(pprintConfig, 0) != std::string::npos)
       opts.printConfig = true;
+    else if (arg.rfind(pmodelConfig, 0) != std::string::npos)
+      opts.configFiles.emplace_back(arg.substr(pmodelConfig.size()));
   }
 
   operator Settings() && { return std::move(opts); }
 
   Settings opts;
 
-  static const std::string pconfigfile;
-  static const std::string plibpath;
+  static const std::string pconfigFile;
   static const std::string pprovider;
   static const std::string pmodel;
   static const std::string plang;
   static const std::string phistoryFile;
   static const std::string pprintConfig;
+  static const std::string pmodelConfig;
 };
 
-const std::string CommandLineArgumentParser::pconfigfile  = "--config=";
-const std::string CommandLineArgumentParser::plibpath     = "--libroot=";
+const std::string CommandLineArgumentParser::pconfigFile  = "--config=";
 const std::string CommandLineArgumentParser::pprovider    = "--provider=";
 const std::string CommandLineArgumentParser::pmodel       = "--model=";
 const std::string CommandLineArgumentParser::plang        = "--lang=";
 const std::string CommandLineArgumentParser::phistoryFile = "--history-file=";
 const std::string CommandLineArgumentParser::pprintConfig = "--print-config";
+const std::string CommandLineArgumentParser::pmodelConfig = "--model-file=";
 
 
 
 Settings parseArguments(const std::vector<std::string>& args)
 {
   return std::for_each( std::next(args.begin()), args.end(),
-                        CommandLineArgumentParser{absolutePath(args.at(0))}
+                        CommandLineArgumentParser{}
                       );
 }
 
@@ -287,7 +271,7 @@ bool initialized(const Settings& settings)
 {
   Settings defaultSettings;
 
-  return settings.tools.invokeai != defaultSettings.tools.invokeai;
+  return settings.tools.exec() != defaultSettings.tools.exec();
 }
 
 Settings configure(std::vector<std::string> args)
@@ -296,13 +280,13 @@ Settings configure(std::vector<std::string> args)
 
   if (!initialized(res))
   {
-    llmtools::LLMProvider provider = llmtools::provider(res.provider);
+    llmtools::Configurations toolsConfig = llmtools::initializeWithDefault();
 
-    if (res.model.size() == 0)
-      res.model = llmtools::defaultModel(provider);
+    for (const std::string& configFileName: res.configFiles)
+      toolsConfig = llmtools::initializeWithConfigFile(configFileName, std::move(toolsConfig));
 
-    res.tools             = llmtools::configure(res.libRoot, provider, res.model);
-    res.tools.historyFile = res.historyFile;
+    res.tools               = llmtools::configure(toolsConfig, res.provider, res.tools.modelName());
+    res.tools.historyFile() = res.historyFile;
   }
 
   if (res.printConfig)
@@ -315,13 +299,13 @@ Settings configure(std::vector<std::string> args)
 
 int main(int argc, char* argv[])
 {
-  Settings                 settings  = configure(std::vector<std::string>(argv, argv+argc));
+  Settings settings = configure(std::vector<std::string>(argv, argv+argc));
 
   if (settings.printConfig)
     return 0;
 
-  CoderData                data      = extractCodeData(std::cin);
-  boost::json::value       history   = prepareConversationHistory(settings, data);
+  CoderData                data    = extractCodeData(std::cin);
+  boost::json::value       history = prepareConversationHistory(settings, data);
 
   history = queryResponse(settings, std::move(history));
 
@@ -329,3 +313,15 @@ int main(int argc, char* argv[])
   printResponse(std::cout, settings, history);
   return 0;
 }
+
+
+#if TEST_PROMPT
+
+/// prints a standard hello world message to \p os
+void helloWorld(std::ostream& os);
+
+---
+
+Implement the C++ function.
+
+#endif /* TEST_PROMPT */

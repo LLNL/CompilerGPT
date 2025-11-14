@@ -46,7 +46,7 @@ namespace boostprocess = boost::process::v1;
 #include <boost/algorithm/string.hpp>
 #include <boost/json.hpp>
 
-#include "llmtools.h"
+#include "llmtools.hpp"
 
 
 #include <boost/utility/string_view.hpp>
@@ -85,12 +85,12 @@ const char* usage    = "usage: compgpt switches source-file"
                        "\n    --create-config       creates config file and exits."
                        "\n    --create-doc-config   creates config file with documentation fields and exits."
                        "\n    --config:ai=p         creates config file for a specified AI."
-                       "\n                          p in {openai,claude,ollama,openrouter}"
+                       "\n                          p in {openai,claude,ollama,openrouter,llama-cli}"
                        "\n                          default: p=openai"
                        "\n    --config:model=m      specifies a submodel for AIs (e.g., gpt-4o)."
                        "\n    --config:compiler=p   specifies a path to a compiler."
-                       "\n                          CompilerGPT will set <<optreport>>, <<compileflags>>,"
-                       "\n                          and <<compilerfamily>> if the compiler can be recognized."
+                       "\n                          CompilerGPT will set ${optreport}, ${compileflags},"
+                       "\n                          and ${compilerfamily} if the compiler can be recognized."
                        "\n    --config:from=f       specifies another config file f to initialize the"
                        "\n                          config settings. The AI and compiler settings will"
                        "\n                          be overridden by the corresponding settings (if provided)."
@@ -98,41 +98,52 @@ const char* usage    = "usage: compgpt switches source-file"
                        "\n                          range is specified in terms of line numbers."
                        "\n                          The following are examples of valid options:"
                        "\n                            1-10    Lines 1-10 (excluding Line 10)."
-                       "\n                            The range can be accessed using <<kernelstart>>"
-                       "\n                            and <<kernellimit>>."
+                       "\n                            The range can be accessed using ${kernelstart}"
+                       "\n                            and ${kernellimit}."
                        //~ "\n                            7:4-10  Lines 7 (starting at column 4) to Line 10."
                        //~ "\n                            7:2-10:8 Lines 7 (starting at column 2) to Line 10"
                        //~ "\n                                     (up to column 8)."
                        "\n                          default: the entire input file"
                        "\n    --var:n=t             Introduces a variable named n and sets it to t."
-                       "\n                          The variable can be accessed using <<n>>."
+                       "\n                          The variable can be accessed using ${n}."
                        "\n"
                        "\n  TestScript: success or failure is returned through the exit status"
                        "\n              a numeric quality score is returned on the last non-empty line on stdout."
                        "\n              The lower the quality score the better (e.g., runtime)."
-                       "\n              The score is available through variables <<score>> and <<scoreint>>."
+                       "\n              The score is available through variables ${score} and ${scoreint}."
                        ;
 
 
-const char* invokeaiDoc       = "a string pointing to an executable (script) that calls the external AI (<<invokeai>>)";
-const char* compilerDoc       = "a string pointing to a compiler (<<compiler>>)";
-const char* compileflagsDoc   = "compile flags passed to compiler (<<compileflags>>)";
-const char* compilerfamilyDoc = "a short name for the compiler (<<compilerfamily>>)";
+// llmtools Settings doc
+// \todo move into llmtools
+const char* execDoc           = "a string pointing to an executable (script) that calls the external AI (${exec})";
+const char* execFlagsDoc      = "arguments to the executable ${execflags}";
+const char* historyFileDoc    = "a JSON file storing the conversation history ${historyFile}. invokeai will read the prompt from this file.";
+const char* responseFileDoc   = "a file [.txt or .json] where the AI stores the query response";
+const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal ']'] {'.' field ['[' literal ']']} ]"
+                                "\n  identifying the response in a JSON output file."
+                                "\n  (ignored when responseFile is a text file)";
+const char* roleOfAIDoc       = "The name of the AI role in the conversation history. Typically assistant.";
+const char* systemTextFileDoc = "If set CompilerGPT writes the system text into the file instead of"
+                                "\n  passing it as first message in the conversation history.";
+const char* apiKeyNameDoc     = "The name of the API key defined in the environment";
+const char* modelNameDoc      = "The name of the model to use";
+const char* promptFileDoc     = "The name of the temporary prompt file";
+
+// CompilerGPT Settings doc
+const char* compilerDoc       = "a string pointing to a compiler (${compiler})";
+const char* compileflagsDoc   = "compile flags passed to compiler (${compileflags})";
+const char* compilerfamilyDoc = "a short name for the compiler (${compilerfamily})";
 const char* optreportDoc      = "compiler flags that generate the optimization report";
 const char* leanOptReportDoc  = "an integer value from 0-2 indicating pruning level of redundant lines in the report."
                                 "\n  0 (no pruning);"
                                 "\n  1 (remove same messages if adjacent);"
                                 "\n  2 (remove same messages).";
-const char* historyFileDoc    = "a JSON file storing the conversation history <<historyFile>>. invokeai will read the prompt from this file.";
-const char* responseFileDoc   = "a file [.txt or .json] where the AI stores the query response";
-const char* responseFieldDoc  = "a JSON path in the form of [field ['[' literal ']'] {'.' field ['[' literal ']']} ]"
-                                "\n  identifying the response in a JSON output file."
-                                "\n  (ignored when responseFile is a text file)";
 const char* testScriptDoc     = "an optional string pointing to an executable that assesses the AI output."
                                 "\n  CompilerGpt variables in the string are expanded before the test script"
                                 "\n  is invoked."
-                                "\n  CompilerGpt variables include: <<compiler>>, <<compilerfamily>>"
-                                "\n  <<compileflags>>, <<invokeai>>, <<optreport>>, <<filename>>."
+                                "\n  CompilerGpt variables include: ${compiler}, ${compilerfamily}"
+                                "\n  ${compileflags}, ${invokeai}, ${optreport}, ${filename}."
                                 "\n  A non-zero exit value indicates that testing faied."
                                 "\n  If successful, the last output line should contain a quality score"
                                 "\n  (may use floating points). A lower score indicates better results."
@@ -143,12 +154,9 @@ const char* testOutliersDoc   = "Removes num outliers from each side of the test
 const char* newFileExtDoc     = "a string for the extension of the generated file."
                                 "\n  (if not set, the original file extension will be used.)"
                                 "\n  This setting is mostly useful for language translation tasks.";
-const char* inputLangDoc      = "language delimiter for the input language. Used to delineate <<code>> sections.";
+const char* inputLangDoc      = "language delimiter for the input language. Used to delineate ${code} sections.";
 const char* outputLangDoc     = "language delimiter for the AI response. (if not set defaults to inputLang).";
 const char* systemTextDoc     = "A string setting the context/role in the AI communication.";
-const char* systemTextFileDoc = "If set CompilerGPT writes the system text into the file instead of"
-                                "\n  passing it as first message in the conversation history.";
-const char* roleOfAIDoc       = "The name of the AI role in the conversation history. Typically assistant.";
 const char* firstPromptDoc    = "The initial prompt.";
 const char* successPromptDoc  = "Follow up prompt when the previous iteration returned a successful code.";
 const char* compFailPromptDoc = "Prompt when the AI generated code does not compile";
@@ -205,7 +213,7 @@ void printConfigHelp(std::ostream& os)
      << "\n  leanOptReport  " << align(leanOptReportDoc, indent)
      << "\n"
      << "\nInteraction with AI"
-     << "\n  invokeai       " << align(invokeaiDoc, indent)
+     << "\n  exec           " << align(execDoc, indent)
      << "\n  historyFile    " << align(historyFileDoc, indent)
      << "\n  responseFile   " << align(responseFileDoc, indent)
      << "\n  responseField  " << align(responseFieldDoc, indent)
@@ -229,7 +237,7 @@ void printConfigHelp(std::ostream& os)
      << "\n  compFailPrompt " << align(compFailPromptDoc, indent)
      << "\n  testFailPrompt " << align(testFailPromptDoc, indent)
      << "\n"
-     << "\n  Prompt text can contain variables <<code>> [only with firstPrompt] and <<report>>."
+     << "\n  Prompt text can contain variables ${code} [only with firstPrompt] and ${report}."
      << "\n"
      << "\nIteration control:"
      << "\n  iterations     " << align(iterationsDoc, indent)
@@ -247,15 +255,6 @@ struct Settings
 {
   llmtools::Settings llmSettings;
 
-#if BEFORE_LLMTOOLS
-  std::string  invokeai       = "/path/to/ai/invocation";
-  std::string  historyFile    = "query.json";
-  std::string  responseFile   = "response.txt";
-  std::string  responseField  = "";
-  std::string  roleOfAI       = "system";
-  std::string  systemTextFile = "";
-#endif /* BEFORE_LLMTOOLS */
-
   std::string  compiler       = "clang";
   std::string  compilerfamily = "clang";
   std::string  compileflags   = "-O3 -march=native -DNDEBUG=1";
@@ -267,10 +266,10 @@ struct Settings
   std::string  inputLang      = "cpp";
   std::string  outputLang     = "cpp";  // same as input language if not specified
   std::string  systemText     = "You are a compiler expert for C++ code optimization. Our goal is to improve the existing code.";
-  std::string  firstPrompt    = "Given the following input code in C++:\n<<code>>\nThe compiler optimization report is as follows:\n<<report>>\nTask 1: Recognize the coding patterns.\nTask 2: Make pattern specific optimizations to the code. Do not use OpenMP.\nTask 3: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 4: Use the prioritized list to improve the input code further.";
-  std::string  successPrompt = "The compiler optimization report for the latest version is as follows:\n<<report>>\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.";
-  std::string  compFailPrompt = "This version did not compile. Here are the error messages:\n<<report>>\nTry again.";
-  std::string  testFailPrompt = "This version failed the regression tests. Here are the error messages:\n<<report>>\nTry again.";
+  std::string  firstPrompt    = "Given the following input code in C++:\n${code}\nThe compiler optimization report is as follows:\n${report}\nTask 1: Recognize the coding patterns.\nTask 2: Make pattern specific optimizations to the code. Do not use OpenMP.\nTask 3: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 4: Use the prioritized list to improve the input code further.";
+  std::string  successPrompt = "The compiler optimization report for the latest version is as follows:\n${report}\nTask 1: Consider the optimization report and prioritize the missed optimizations in terms of expected improvement.\nTask 2: Use the prioritized list to improve the input code further.";
+  std::string  compFailPrompt = "This version did not compile. Here are the error messages:\n${report}\nTry again.";
+  std::string  testFailPrompt = "This version failed the regression tests. Here are the error messages:\n${report}\nTry again.";
 
   bool         stopOnSuccess  = false;
   std::int64_t leanOptReport  = 2;
@@ -317,12 +316,14 @@ struct MeasureRuntime
     time_point   start;
 };
 
-
+#if 0
 /// returns the absolute path for an existing file path \p filename.
 std::filesystem::path absolutePath(std::string_view filename)
 {
   return std::filesystem::absolute(std::filesystem::path{filename}).remove_filename();
 }
+
+#endif
 
 struct MissingCodeError : std::runtime_error
 {
@@ -376,6 +377,7 @@ struct CmdLineArgs
   std::filesystem::path         programPath          = "compgpt.bin";
   llmtools::SourceRange         kernel               = llmtools::SourceRange::all();
   std::string                   csvsummary           = "";
+  std::vector<std::string>      configFiles          = {};
   std::vector<std::string_view> all;
   PlaceholderMap                vars;
 };
@@ -416,7 +418,8 @@ Settings setupCompiler(Settings settings, const CmdLineArgs& args, CompilerSetup
 
 
 /// creates default settings for supported AI models.
-Settings createSettings(Settings settings, const CmdLineArgs& args)
+Settings
+createSettings(const llmtools::Configurations& toolConfigs, Settings settings, const CmdLineArgs& args)
 {
   using CompilerFamilySetup = std::unordered_map<CmdLineArgs::CompilerFamily, CompilerSetup>;
 
@@ -426,9 +429,9 @@ Settings createSettings(Settings settings, const CmdLineArgs& args)
         };
 
   if ((args.configAI != llmtools::LLMnone) && (args.configAI != llmtools::LLMerror))
-    settings.llmSettings = llmtools::configure(args.programPath, args.configAI, args.configModel);
+    settings.llmSettings = llmtools::configure(toolConfigs, args.configAI, args.configModel);
   else
-    trace(std::cerr, "Not (re)configuring AI. (Unknown or unspecified AI)");
+    trace(std::cerr, "Not (re)configuring AI. (Unknown or unspecified AI)", "\n");
 
   if (auto pos = compilerFamilySetup.find(args.configCompilerFamily); pos != compilerFamilySetup.end())
     settings = setupCompiler(std::move(settings), args, pos->second);
@@ -559,12 +562,13 @@ addToMap(PlaceholderMap m, llmtools::SourceRange rng)
 PlaceholderMap
 addToMap(PlaceholderMap m, const Settings& settings)
 {
-  m.emplace("invokeai",       settings.llmSettings.invokeai);
+  m.emplace("exec",           settings.llmSettings.exec());
+  m.emplace("execflags",      settings.llmSettings.execFlags());
   m.emplace("compiler",       settings.compiler);
   m.emplace("compilerfamily", settings.compilerfamily);
   m.emplace("compileflags",   settings.compileflags);
   m.emplace("optreport",      settings.optreport);
-  m.emplace("historyFile",    settings.llmSettings.historyFile);
+  m.emplace("historyFile",    settings.llmSettings.historyFile());
 /*
      << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
      << "\n  \"responseFile\":\""   << settings.responseFile << "\"" << ","
@@ -605,7 +609,7 @@ template <class... Additions>
 std::string
 expandText(const std::string& prompt, PlaceholderMap m, Additions... extras)
 {
-  return llmtools::expandPrompt(prompt, makeVariables(std::move(m), std::forward<Additions>(extras)...));
+  return llmtools::expandText(prompt, makeVariables(std::move(m), std::forward<Additions>(extras)...));
 }
 
 
@@ -618,13 +622,13 @@ struct Diagnostic : DiagnosticBase
   using base::base;
 
   const std::string&              file()     const { return std::get<0>(*this); }
-  llmtools::SourcePoint                     location() const { return std::get<1>(*this); }
+  llmtools::SourcePoint           location() const { return std::get<1>(*this); }
   const std::vector<std::string>& message()  const { return std::get<2>(*this); }
 
   bool empty() const { return message().empty(); }
 
   std::string&              file()     { return std::get<0>(*this); }
-  llmtools::SourcePoint&              location() { return std::get<1>(*this); }
+  llmtools::SourcePoint&    location() { return std::get<1>(*this); }
   std::vector<std::string>& message()  { return std::get<2>(*this); }
 };
 
@@ -1204,76 +1208,6 @@ storeGeneratedFile( const Settings& settings,
 }
 
 
-
-
-/// queries a string field from a JSON object.
-std::string_view
-loadField(const json::object& cnfobj, std::string fld, const std::string& alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-    return pos->value().as_string();
-
-  return alt;
-}
-
-/// queries a boolean field from a JSON object.
-bool
-loadField(const json::object& cnfobj, std::string fld, bool alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-    return pos->value().as_bool();
-
-  if (const std::int64_t* ip = pos->value().if_int64())
-  {
-    trace(std::cerr, "converting integer to boolean for field ", fld, "\n");
-    return *ip;
-  }
-
-  if (const std::uint64_t* up = pos->value().if_uint64())
-  {
-    trace(std::cerr, "converting integer to boolean for field ", fld, "\n");
-    return *up;
-  }
-
-  return alt;
-}
-
-/// queries an int64_t field from a JSON object.
-std::int64_t
-loadField(const json::object& cnfobj, std::string fld, std::int64_t alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-  {
-    if (const std::int64_t* ip = pos->value().if_int64())
-      return *ip;
-
-    if (const std::uint64_t* up = pos->value().if_uint64())
-    {
-      if (*up < std::uint64_t(std::numeric_limits<std::int64_t>::max()))
-      {
-        trace(std::cerr, "uint64_t value exceeds int64_t range for field ", fld, "\n");
-        throw std::runtime_error("uint64_t value exceeds int64_t range.");
-      }
-
-      return *up;
-    }
-
-    if (const bool* bp = pos->value().if_bool())
-    {
-      trace(std::cerr, "converting boolean value to integer for field ", fld, "\n");
-      return *bp;
-    }
-  }
-
-  return alt;
-}
-
 /// replaces new line characters in a string with escaped newline
 std::string replace_nl(std::string s)
 {
@@ -1291,9 +1225,9 @@ std::string fieldDoc(bool gen, const char* field, const char* docString)
 
   res += "\n  \"";
   res += field;
-  res += "\":\"";
-  res += doc;
-  res += "\",";
+  res += "\":";
+  res += boost::json::string(doc);
+  res += ",";
 
   return res;
 }
@@ -1310,8 +1244,30 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      //~ << "\n  \"optcompile\":\""     << settings.optcompile << "\","
 
   os << "{"
-     << fieldDoc(genDoc, "invokeai-doc", invokeaiDoc)
-     << "\n  \"invokeai\":\""       << settings.llmSettings.invokeai << "\","
+     // write out fields as defined by llmtools
+     // \todo consider using llmtools::SettingsJsonFieldWriter
+     << fieldDoc(genDoc, "exec-doc", execDoc)
+     << "\n  \"exec\":"           << boost::json::string(settings.llmSettings.exec()) << ","
+     << fieldDoc(genDoc, "execFlags-doc", execFlagsDoc)
+     << "\n  \"execFlags\":"      << boost::json::string(settings.llmSettings.execFlags()) << ","
+     << fieldDoc(genDoc, "historyFile-doc", historyFileDoc)
+     << "\n  \"historyFile\":"    << boost::json::string(settings.llmSettings.historyFile()) << ","
+     << fieldDoc(genDoc, "responseFile-doc", responseFileDoc)
+     << "\n  \"responseFile\":"   << boost::json::string(settings.llmSettings.responseFile()) << ","
+     << fieldDoc(genDoc, "responseField-doc", responseFieldDoc)
+     << "\n  \"responseField\":"  << boost::json::string(settings.llmSettings.responseField()) << ","
+     << fieldDoc(genDoc, "systemTextFile-doc", systemTextFileDoc)
+     << "\n  \"systemTextFile\":" << boost::json::string(settings.llmSettings.systemTextFile()) << ","
+     << fieldDoc(genDoc, "roleOfAI-doc", roleOfAIDoc)
+     << "\n  \"roleOfAI\":"       << boost::json::string(settings.llmSettings.roleOfAI()) << ","
+     << fieldDoc(genDoc, "apiKeyName-doc", apiKeyNameDoc)
+     << "\n  \"apiKeyName\":"     << boost::json::string(settings.llmSettings.apiKeyName()) << ","
+     << fieldDoc(genDoc, "modelName-doc", modelNameDoc)
+     << "\n  \"modelName\":"      << boost::json::string(settings.llmSettings.modelName()) << ","
+     << fieldDoc(genDoc, "promptFile-doc", promptFileDoc)
+     << "\n  \"promptFile\":"     << settings.llmSettings.promptFile() << ","
+
+     // CompilerGPT settings
      << fieldDoc(genDoc, "compiler-doc", compilerDoc)
      << "\n  \"compiler\":\""       << settings.compiler << "\","
      << fieldDoc(genDoc, "compileflags-doc", compileflagsDoc)
@@ -1322,12 +1278,6 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n  \"optreport\":\""      << settings.optreport << "\","
      << fieldDoc(genDoc, "leanOptReport-doc", leanOptReportDoc)
      << "\n  \"leanOptReport\":"    << settings.leanOptReport << ","
-     << fieldDoc(genDoc, "historyFile-doc", historyFileDoc)
-     << "\n  \"historyFile\":\""    << settings.llmSettings.historyFile << "\","
-     << fieldDoc(genDoc, "responseFile-doc", responseFileDoc)
-     << "\n  \"responseFile\":\""   << settings.llmSettings.responseFile << "\"" << ","
-     << fieldDoc(genDoc, "responseField-doc", responseFieldDoc)
-     << "\n  \"responseField\":\""  << settings.llmSettings.responseField << "\"" << ","
      << fieldDoc(genDoc, "testScript-doc", testScriptDoc)
      << "\n  \"testScript\":\""     << settings.testScript << "\"" << ","
      << fieldDoc(genDoc, "testRuns-doc", testRunsDoc)
@@ -1342,10 +1292,6 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n  \"outputLang\":\""     << settings.outputLang << "\"" << ","
      << fieldDoc(genDoc, "systemText-doc", systemTextDoc)
      << "\n  \"systemText\":\""     << replace_nl(settings.systemText) << "\"" << ","
-     << fieldDoc(genDoc, "systemTextFile-doc", systemTextFileDoc)
-     << "\n  \"systemTextFile\":\"" << settings.llmSettings.systemTextFile << "\"" << ","
-     << fieldDoc(genDoc, "roleOfAI-doc", roleOfAIDoc)
-     << "\n  \"roleOfAI\":\""       << settings.llmSettings.roleOfAI << "\"" << ","
      << fieldDoc(genDoc, "firstPrompt-doc", firstPromptDoc)
      << "\n  \"firstPrompt\":\""    << replace_nl(settings.firstPrompt) << "\","
      << fieldDoc(genDoc, "successPrompt-doc", successPromptDoc)
@@ -1361,18 +1307,21 @@ void writeSettings(std::ostream& os, const CmdLineArgs& args, const Settings& se
      << "\n}" << std::endl;
 }
 
-void configVersionCheck(const json::object& cnfobj)
+void configVersionCheck(const json::value& cnf)
 {
   const std::string X = "x@123";
-  const bool oldConfigFile = (  (loadField(cnfobj, "optcompiler", X) != X)
-                             || (loadField(cnfobj, "optcompile", X) != X)
-                             || (loadField(cnfobj, "queryFile", X) != X)
+  const bool oldConfigFile = (  (llmtools::loadField(cnf, "invokeai", X) != X)
+                             || (llmtools::loadField(cnf, "optcompiler", X) != X)
+                             || (llmtools::loadField(cnf, "optcompile", X) != X)
+                             || (llmtools::loadField(cnf, "queryFile", X) != X)
                              );
 
   if (oldConfigFile)
   {
     std::cerr << "The config file was created for a previous CompilerGPT version."
               << "\n  Please rename the following fields"
+              << "\n    invokeai    => exec"
+              << "\n       [also add execFlags]"
               << "\n    optcompiler => compiler"
               << "\n    optcompile  => compileflags"
               << "\n    queryFile   => historyFile"
@@ -1389,38 +1338,32 @@ Settings readSettings(const std::string& configFileName)
 
   try
   {
-    json::value   cnf    = llmtools::readJsonFile(configFileName);
-    json::object& cnfobj = cnf.as_object();
-    Settings      config;
+    json::value cnf = llmtools::readJsonFile(configFileName);
+    Settings    config;
 
-    configVersionCheck(cnfobj);
+    configVersionCheck(cnf);
 
-    config.llmSettings.invokeai       = loadField(cnfobj, "invokeai",        config.llmSettings.invokeai);
-    config.llmSettings.responseFile   = loadField(cnfobj, "responseFile",    config.llmSettings.responseFile);
-    config.llmSettings.responseField  = loadField(cnfobj, "responseField",   config.llmSettings.responseField);
-    config.llmSettings.systemTextFile = loadField(cnfobj, "systemTextFile",  config.llmSettings.systemTextFile);
-    config.llmSettings.roleOfAI       = loadField(cnfobj, "roleOfAI",        config.llmSettings.roleOfAI);
-    config.llmSettings.historyFile    = loadField(cnfobj, "historyFile",     config.llmSettings.historyFile);
+    config.llmSettings = llmtools::settings(cnf, config.llmSettings);
 
-    config.compiler       = loadField(cnfobj, "compiler",        config.compiler);
-    config.compileflags   = loadField(cnfobj, "compileflags",    config.compileflags);
-    config.compilerfamily = loadField(cnfobj, "compilerfamily",  config.compilerfamily);
-    config.optreport      = loadField(cnfobj, "optreport",       config.optreport);
-    config.testScript     = loadField(cnfobj, "testScript",      config.testScript);
-    config.testRuns       = loadField(cnfobj, "testRuns",        config.testRuns);
-    config.testOutliers   = loadField(cnfobj, "testOutliers",    config.testOutliers);
-    config.newFileExt     = loadField(cnfobj, "newFileExt",      config.newFileExt);
-    config.inputLang      = loadField(cnfobj, "inputLang",       config.inputLang);
-    config.outputLang     = loadField(cnfobj, "outputLang",      config.inputLang); // out is in if not set
-    config.systemText     = loadField(cnfobj, "systemText",      config.systemText);
-    config.stopOnSuccess  = loadField(cnfobj, "stopOnSuccess",   config.stopOnSuccess);
-    config.leanOptReport  = loadField(cnfobj, "leanOptReport",   config.leanOptReport);
-    config.iterations     = loadField(cnfobj, "iterations",      config.iterations);
+    config.compiler       = llmtools::loadField(cnf, "compiler",        config.compiler);
+    config.compileflags   = llmtools::loadField(cnf, "compileflags",    config.compileflags);
+    config.compilerfamily = llmtools::loadField(cnf, "compilerfamily",  config.compilerfamily);
+    config.optreport      = llmtools::loadField(cnf, "optreport",       config.optreport);
+    config.testScript     = llmtools::loadField(cnf, "testScript",      config.testScript);
+    config.testRuns       = llmtools::loadField(cnf, "testRuns",        config.testRuns);
+    config.testOutliers   = llmtools::loadField(cnf, "testOutliers",    config.testOutliers);
+    config.newFileExt     = llmtools::loadField(cnf, "newFileExt",      config.newFileExt);
+    config.inputLang      = llmtools::loadField(cnf, "inputLang",       config.inputLang);
+    config.outputLang     = llmtools::loadField(cnf, "outputLang",      config.inputLang); // out is in if not set
+    config.systemText     = llmtools::loadField(cnf, "systemText",      config.systemText);
+    config.stopOnSuccess  = llmtools::loadField(cnf, "stopOnSuccess",   config.stopOnSuccess);
+    config.leanOptReport  = llmtools::loadField(cnf, "leanOptReport",   config.leanOptReport);
+    config.iterations     = llmtools::loadField(cnf, "iterations",      config.iterations);
 
-    config.firstPrompt    = loadField(cnfobj, "firstPrompt",     config.firstPrompt);
-    config.successPrompt  = loadField(cnfobj, "successPrompt",   config.successPrompt);
-    config.compFailPrompt = loadField(cnfobj, "compFailPrompt",  config.compFailPrompt);
-    config.testFailPrompt = loadField(cnfobj, "testFailPrompt",  config.testFailPrompt);
+    config.firstPrompt    = llmtools::loadField(cnf, "firstPrompt",     config.firstPrompt);
+    config.successPrompt  = llmtools::loadField(cnf, "successPrompt",   config.successPrompt);
+    config.compFailPrompt = llmtools::loadField(cnf, "compFailPrompt",  config.compFailPrompt);
+    config.testFailPrompt = llmtools::loadField(cnf, "testFailPrompt",  config.testFailPrompt);
 
     settings = std::move(config);
   }
@@ -1447,7 +1390,7 @@ Settings readSettings(const std::string& configFileName)
 }
 
 /// creates JSON file with default values
-void createConfigFile(CmdLineArgs args)
+void createConfigFile(const llmtools::Configurations& toolConfigs, CmdLineArgs args)
 {
   if (std::filesystem::exists(args.configFileName))
   {
@@ -1467,35 +1410,33 @@ void createConfigFile(CmdLineArgs args)
       std::cerr << "** Using default model: OpenAI/gpt-4o **"
                 <<  std::endl;
 
-      args.configAI = llmtools::openai;
+      args.configAI = "gpt4o";
     }
   }
 
   Settings      settings = readSettings(args.configFrom);
   std::ofstream ofs(args.configFileName);
 
-  writeSettings(ofs, args, createSettings(settings, args));
+  writeSettings(ofs, args, createSettings(toolConfigs, settings, args));
 }
 
 /// Functor processing command line arguments
 struct CmdLineProc
 {
-  explicit
-  CmdLineProc(std::filesystem::path absPath)
-  : opts()
+  std::tuple<std::string, CmdLineArgs::CompilerFamily>
+  determineCompilerFamily(std::string_view comparg)
   {
-    opts.programPath = std::move(absPath);
-  }
+    std::string comp = std::string(comparg);
 
-  CmdLineArgs::CompilerFamily
-  determineCompilerFamily(const std::string& comp)
-  {
     if (comp.empty())
     {
       std::cerr << "No compiler specified. Use as in: --config:compiler=/PATH/TO/COMPILER"
                 << std::endl;
-      return CmdLineArgs::nocomp;
+      return { comp, CmdLineArgs::nocomp };
     }
+
+    if (comp.rfind("/", 0) != 0)
+      comp = boostprocess::search_path(comp).string();
 
     std::vector<std::string> args{"--version"};
     boost::asio::io_context  ios;
@@ -1519,29 +1460,23 @@ struct CmdLineProc
     {
       std::cerr << "Automatic compiler check failed: " << comp << " --version"
                 << std::endl;
-      return CmdLineArgs::nocomp;
+      return { comp, CmdLineArgs::nocomp };
     }
 
     const std::string outtxt = outstr.get();
     const std::string outcap = boost::to_upper_copy(outtxt);
 
     if (outcap.find("GCC") != std::string::npos)
-      return CmdLineArgs::gcc;
+      return { comp, CmdLineArgs::gcc };
 
     if (outcap.find("CLANG") != std::string::npos)
-      return CmdLineArgs::clang;
+      return { comp, CmdLineArgs::clang };
 
-    std::cerr << "Unable to configure compiler: \n"
+    std::cerr << "Unable to configure compiler: " << comparg << "[" << comp << "]\n"
               << outtxt
               << std::endl;
 
-    return CmdLineArgs::nocomp;
-  }
-
-  llmtools::LLMProvider
-  parseAI(std::string_view m)
-  {
-    return llmtools::provider(std::string(m));
+    return { comp, CmdLineArgs::nocomp };
   }
 
   std::tuple<std::size_t, std::string_view>
@@ -1645,7 +1580,7 @@ struct CmdLineProc
     else if (arg.rfind(pconfigmodel, 0) != std::string::npos)
       opts.configModel = arg.substr(pconfigmodel.size());
     else if (arg.rfind(pconfigai, 0) != std::string::npos)
-      opts.configAI = parseAI(arg.substr(pconfigai.size()));
+      opts.configAI = arg.substr(pconfigai.size());
     else if (arg.rfind(pconfigcreate, 0) != std::string::npos)
       opts.configCreate = true;
     else if (arg.rfind(pdocconfigcreate, 0) != std::string::npos)
@@ -1653,10 +1588,8 @@ struct CmdLineProc
     else if (arg.rfind(pconfigfrom, 0) != std::string::npos)
       opts.configFrom = arg.substr(pconfigfrom.size());
     else if (arg.rfind(pconfigcompiler, 0) != std::string::npos)
-    {
-      opts.configCompiler = arg.substr(pconfigcompiler.size());
-      opts.configCompilerFamily = determineCompilerFamily(opts.configCompiler);
-    }
+      std::tie(opts.configCompiler, opts.configCompilerFamily)
+          = determineCompilerFamily(arg.substr(pconfigcompiler.size()));
     else if (arg.rfind(pconfig, 0) != std::string::npos)
       opts.configFileName = arg.substr(pconfig.size());
     else if (arg.rfind(pkernel, 0) != std::string::npos)
@@ -1665,6 +1598,8 @@ struct CmdLineProc
       parseUserVar(opts.vars, arg.substr(pvar.size()));
     else if (arg.rfind(pcsvsummary, 0) != std::string::npos)
       opts.csvsummary = arg.substr(pcsvsummary.size());
+    else if (arg.rfind(pmodelConfig, 0) != std::string::npos)
+      opts.configFiles.emplace_back(arg.substr(pmodelConfig.size()));
     else
       opts.all.push_back(arg);
   }
@@ -1673,45 +1608,47 @@ struct CmdLineProc
 
   CmdLineArgs opts;
 
-  static std::string pversion;
-  static std::string phelp;
-  static std::string phelp2;
-  static std::string phelp3;
-  static std::string phelpconfig;
-  static std::string phelpvariables;
-  static std::string pconfigcreate;
-  static std::string pdocconfigcreate;
-  static std::string pconfigai;
-  static std::string pconfigmodel;
-  static std::string pconfigfrom;
-  static std::string pconfigcompiler;
-  static std::string pconfig;
-  static std::string pvar;
-  static std::string pkernel;
-  static std::string pcsvsummary;
+  static const std::string pversion;
+  static const std::string phelp;
+  static const std::string phelp2;
+  static const std::string phelp3;
+  static const std::string phelpconfig;
+  static const std::string phelpvariables;
+  static const std::string pconfigcreate;
+  static const std::string pdocconfigcreate;
+  static const std::string pconfigai;
+  static const std::string pconfigmodel;
+  static const std::string pconfigfrom;
+  static const std::string pconfigcompiler;
+  static const std::string pconfig;
+  static const std::string pvar;
+  static const std::string pkernel;
+  static const std::string pcsvsummary;
+  static const std::string pmodelConfig;
 };
 
-std::string CmdLineProc::pversion         = "--version";
-std::string CmdLineProc::phelp            = "--help";
-std::string CmdLineProc::phelp2           = "-help";
-std::string CmdLineProc::phelp3           = "-h";
-std::string CmdLineProc::phelpconfig      = "--help-config";
-std::string CmdLineProc::phelpvariables   = "--help-variables";
-std::string CmdLineProc::pconfigcreate    = "--create-config";
-std::string CmdLineProc::pdocconfigcreate = "--create-doc-config";
-std::string CmdLineProc::pconfigai        = "--config:ai=";
-std::string CmdLineProc::pconfigmodel     = "--config:model=";
-std::string CmdLineProc::pconfigfrom      = "--config:from=";
-std::string CmdLineProc::pconfigcompiler  = "--config:compiler=";
-std::string CmdLineProc::pconfig          = "--config=";
-std::string CmdLineProc::pvar             = "--var:";
-std::string CmdLineProc::pkernel          = "--kernel=";
-std::string CmdLineProc::pcsvsummary      = "--csvsummary=";
+const std::string CmdLineProc::pversion         = "--version";
+const std::string CmdLineProc::phelp            = "--help";
+const std::string CmdLineProc::phelp2           = "-help";
+const std::string CmdLineProc::phelp3           = "-h";
+const std::string CmdLineProc::phelpconfig      = "--help-config";
+const std::string CmdLineProc::phelpvariables   = "--help-variables";
+const std::string CmdLineProc::pconfigcreate    = "--create-config";
+const std::string CmdLineProc::pdocconfigcreate = "--create-doc-config";
+const std::string CmdLineProc::pconfigai        = "--config:ai=";
+const std::string CmdLineProc::pconfigmodel     = "--config:model=";
+const std::string CmdLineProc::pconfigfrom      = "--config:from=";
+const std::string CmdLineProc::pconfigcompiler  = "--config:compiler=";
+const std::string CmdLineProc::pconfig          = "--config=";
+const std::string CmdLineProc::pvar             = "--var:";
+const std::string CmdLineProc::pkernel          = "--kernel=";
+const std::string CmdLineProc::pcsvsummary      = "--csvsummary=";
+const std::string CmdLineProc::pmodelConfig     = "--model-file=";
 
 CmdLineArgs parseArguments(const std::vector<std::string>& args)
 {
   return std::for_each( std::next(args.begin()), args.end(),
-                        CmdLineProc{absolutePath(args.at(0))}
+                        CmdLineProc{}
                       );
 }
 
@@ -1995,15 +1932,21 @@ int main(int argc, char** argv)
     return 0;
   }
 
+  // build tools configuration
+  llmtools::Configurations toolsConfig = llmtools::initializeWithDefault();
+
+  for (const std::string& configFileName: cmdlnargs.configFiles)
+    toolsConfig = llmtools::initializeWithConfigFile(configFileName, std::move(toolsConfig));
+
   if (cmdlnargs.configCreate)
   {
-    createConfigFile(cmdlnargs);
+    createConfigFile(toolsConfig, cmdlnargs);
     return 0;
   }
 
   if (cmdlnargs.all.size() == 0)
   {
-    std::cout << (cmdlnargs.programPath / argv[0]).string() << std::endl
+    std::cout << argv[0] << std::endl
               << "  no arguments where provided" << std::endl
               << "  try --help for more information" << std::endl;
     return 1;

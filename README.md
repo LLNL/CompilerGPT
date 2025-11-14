@@ -10,7 +10,7 @@ CompilerGPT calls AI modules through scripts which makes it flexible to use with
 
 ## LLMTools Library
 
-The `llmtools` branch contains a C++ library that factors out basic elements of interacting with LLMs. This library provides a clean interface for creating conversation histories, appending prompts, querying LLMs, and processing responses. A test driver (`test-llmtools.bin`) demonstrates simple usage of the library.
+The `llmtools` branch contains a C++ dynamic library that factors out basic elements of interacting with LLMs. This library provides a clean interface for creating conversation histories, appending prompts, querying LLMs, and processing responses. A test driver (`test-llmtools.bin`) demonstrates simple usage of the library.
 
 ### Robustness
 
