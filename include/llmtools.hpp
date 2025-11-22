@@ -20,6 +20,11 @@
 
 namespace llmtools
 {
+  using JsonValue = boost::json::value;
+}
+
+namespace llmtools
+{
   using LLMProvider = std::string;
 
   extern const char* const LLMnone;
@@ -28,23 +33,23 @@ namespace llmtools
   /// LLM settings
   using SettingsBase = std::tuple< std::string, std::string, std::string, std::string
                                  , std::string, std::string, std::string, std::string
-                                 , std::string, boost::json::value
+                                 , std::string, JsonValue
                                  >;
   struct Settings : SettingsBase
   {
     using base = SettingsBase;
     using base::base;
 
-    Settings( std::string pexec             = "/path/to/ai/script",
-              std::string pexecFlags        = "${LLMTOOLS:MODEL}",
-              std::string presponseFile     = "response.txt",
-              std::string presponseField    = {},
-              std::string proleOfAI         = "assistant",
-              std::string psystemTextFile   = {},
-              std::string phistoryFile      = "query.json",
-              std::string papiKeyName       = {},
-              std::string pmodelName        = {},
-              boost::json::value promptFile = nullptr
+    Settings( std::string pexec           = "/path/to/ai/script",
+              std::string pexecFlags      = "${LLMTOOLS:MODEL}",
+              std::string presponseFile   = "response.txt",
+              std::string presponseField  = {},
+              std::string proleOfAI       = "assistant",
+              std::string psystemTextFile = {},
+              std::string phistoryFile    = "query.json",
+              std::string papiKeyName     = {},
+              std::string pmodelName      = {},
+              JsonValue promptFile        = nullptr
             )
     : base( std::move(pexec), std::move(pexecFlags), std::move(presponseFile),
             std::move(presponseField), std::move(proleOfAI), std::move(psystemTextFile),
@@ -53,44 +58,62 @@ namespace llmtools
           )
     {}
 
-    std::string const& exec()       const        { return std::get<0>(*this); }
-    std::string&       exec()                    { return std::get<0>(*this); }
-    std::string const& execFlags() const         { return std::get<1>(*this); }
-    std::string&       execFlags()               { return std::get<1>(*this); }
-    std::string const& responseFile() const      { return std::get<2>(*this); }
-    std::string&       responseFile()            { return std::get<2>(*this); }
-    std::string const& responseField() const     { return std::get<3>(*this); }
-    std::string&       responseField()           { return std::get<3>(*this); }
-    std::string const& roleOfAI() const          { return std::get<4>(*this); }
-    std::string&       roleOfAI()                { return std::get<4>(*this); }
-    std::string const& systemTextFile() const    { return std::get<5>(*this); }
-    std::string&       systemTextFile()          { return std::get<5>(*this); }
-    std::string const& historyFile() const       { return std::get<6>(*this); }
-    std::string&       historyFile()             { return std::get<6>(*this); }
-    std::string const& apiKeyName() const        { return std::get<7>(*this); }
-    std::string&       apiKeyName()              { return std::get<7>(*this); }
-    std::string const& modelName() const         { return std::get<8>(*this); }
-    std::string&       modelName()               { return std::get<8>(*this); }
-    boost::json::value const& promptFile() const { return std::get<9>(*this); }
-    boost::json::value&       promptFile()       { return std::get<9>(*this); }
+    std::string const& exec()       const     { return std::get<0>(*this); }
+    std::string&       exec()                 { return std::get<0>(*this); }
+    std::string const& execFlags() const      { return std::get<1>(*this); }
+    std::string&       execFlags()            { return std::get<1>(*this); }
+    std::string const& responseFile() const   { return std::get<2>(*this); }
+    std::string&       responseFile()         { return std::get<2>(*this); }
+    std::string const& responseField() const  { return std::get<3>(*this); }
+    std::string&       responseField()        { return std::get<3>(*this); }
+    std::string const& roleOfAI() const       { return std::get<4>(*this); }
+    std::string&       roleOfAI()             { return std::get<4>(*this); }
+    std::string const& systemTextFile() const { return std::get<5>(*this); }
+    std::string&       systemTextFile()       { return std::get<5>(*this); }
+    std::string const& historyFile() const    { return std::get<6>(*this); }
+    std::string&       historyFile()          { return std::get<6>(*this); }
+    std::string const& apiKeyName() const     { return std::get<7>(*this); }
+    std::string&       apiKeyName()           { return std::get<7>(*this); }
+    std::string const& modelName() const      { return std::get<8>(*this); }
+    std::string&       modelName()            { return std::get<8>(*this); }
+    JsonValue const&   promptFile() const     { return std::get<9>(*this); }
+    JsonValue&         promptFile()           { return std::get<9>(*this); }
   };
 
-  using Configurations = boost::json::value;
+  struct Configurations
+  {
+      Configurations();
+
+      /// sets the initial JSON object;
+      explicit
+      Configurations(JsonValue js);
+
+      Configurations(const Configurations&)            = default;
+      Configurations(Configurations&&)                 = default;
+      Configurations& operator=(const Configurations&) = default;
+      Configurations& operator=(Configurations&&)      = default;
+      ~Configurations()                                = default;
+
+      const JsonValue& json() const { return val; }
+
+    private:
+      JsonValue val;
+  };
 
   /// loads Settings from a JSON object \p config. If a key is not present, the
   ///   the value from \p oldSettings will be used.
   Settings
-  settings(const boost::json::value& config, const Settings& oldSettings);
+  settings(const JsonValue& config, const Settings& oldSettings);
 
   /// Returns default configurations appended to \p cnf
   /// \throws std::runtime_error if a provider is defined multiple times in the configuration files
   Configurations
-  initializeWithDefault(Configurations cnf = boost::json::object{});
+  initializeWithDefault(Configurations cnf = {});
 
   /// Load user-defined configurations from \p configFileName and append to \p cnf.
   /// \throws std::runtime_error if a provider is defined multiple times in the configuration files
   Configurations
-  initializeWithConfigFile(const std::string& configFileName, Configurations cnf = boost::json::object{});
+  initializeWithConfigFile(const std::string& configFileName, Configurations cnf = {});
 
   /// returns the canonical key for a provider available in the configurations.
   /// \param  providerName a common name that identifies the provider
@@ -103,20 +126,13 @@ namespace llmtools
   LLMProvider
   provider(const Configurations& cnf, const std::string& providerName);
 
-  /// stores the \p conversationHistory into the \p historyfile
-  void
-  storeQuery(const std::string& historyfile, const boost::json::value& conversationHistory);
-
-  /// stores the \p conversationHistory into the historyfile as specified in \p settings
-  void
-  storeQuery(const Settings& settings, const boost::json::value& conversationHistory);
 
   /// reads a JSON stream and returns the corresponding JSON object
-  boost::json::value
+  JsonValue
   readJsonStream(std::istream& is);
 
   /// reads a JSON file and returns the corresponding JSON object
-  boost::json::value
+  JsonValue
   readJsonFile(const std::string& fileName);
 
   /// Writes out settings to JSON format;
@@ -147,22 +163,58 @@ namespace llmtools
   //
   // manipulate conversation history
 
-  /// creates a new conversation history
-  /// \note CURRENTLY THIS IS LIMITED TO ONE CONCURRENT CONVERSATION HISTORY
-  boost::json::value
-  createConversationHistory(const Settings& settings, const std::string& systemText);
+  struct ConversationHistory
+  {
+      ConversationHistory(const ConversationHistory&)            = default;
+      ConversationHistory(ConversationHistory&&)                 = default;
+      ConversationHistory& operator=(const ConversationHistory&) = default;
+      ConversationHistory& operator=(ConversationHistory&&)      = default;
+      ~ConversationHistory()                                     = default;
 
-  /// append \p prompt to conversation history \p conversationHistory and return new conversation history
-  boost::json::value
-  appendPrompt(boost::json::value conversationHistory, const std::string& prompt);
+      /// creates a conversation history for an AI model defined by \p settings
+      ///   and system text message \p systemText.
+      ConversationHistory(const Settings& settings, const std::string& systemText);
+
+      /// creates a conversation history from a Json value
+      ///   and system text message \p systemText.
+      explicit
+      ConversationHistory(JsonValue jv);
+
+      /// appends \p prompt to a message element and appends it to this history
+      /// \param  prompt the text of the next prompt
+      /// \return this object
+      ConversationHistory&
+      appendPrompt(const std::string& prompt);
+
+      /// appends \p entry to conversation history and returns this object
+      ConversationHistory&
+      append(JsonValue entry);
+
+      /// returns the message of the last entry
+      /// \note usually used to get the last response
+      std::string
+      lastEntry() const;
+
+      /// returns the internal representation
+      const JsonValue&
+      json() const;
+
+    private:
+      JsonValue val;
+  };
+
+  std::ostream&
+  operator<<(std::ostream& os, const ConversationHistory& hist);
 
   /// invokes the AI with the complete history in \p conversationHistory
-  boost::json::value
-  queryResponse(const Settings& settings, boost::json::value conversationHistory);
-
-  /// gets the last response from the \p conversationHistory
-  std::string
-  lastEntry(const boost::json::value& conversationHistory);
+  /// \param  settings AI specific settings
+  /// \param  hist     the conversation history
+  /// \return a new conversation history (conversationHistory + response)
+  /// \note CURRENTLY there is no concurrency control. Concurrent AND
+  ///       interleaved invocations need to make sure that the configuration
+  ///       file settings in \p settings are unique.
+  ConversationHistory
+  queryResponse(const Settings& settings, ConversationHistory hist);
 
   //
   // support text manipulation for prompt.
@@ -176,6 +228,24 @@ namespace llmtools
   ///   variables.
   std::string
   expandText(const std::string& txt, const VariableMap& vars);
+
+
+  using CodeSectionBase = std::tuple<std::string, std::string>;
+  struct CodeSection : CodeSectionBase
+  {
+    using base = CodeSectionBase;
+    using base::base;
+
+    /// the language marker; returns an empty string if it was not present
+    const std::string& languageMarker() const { return std::get<0>(*this); }
+
+    /// returns the code.
+    const std::string& code()           const { return std::get<1>(*this); }
+  };
+
+  //
+  // code manipulation convenience functions
+  // \todo use patchy instead.
 
   /// a source code location
   using SourcePointBase = std::tuple<std::size_t, std::size_t>;
@@ -217,19 +287,6 @@ namespace llmtools
   std::ostream&
   operator<<(std::ostream& os, SourceRange p);
 
-  using CodeSectionBase = std::tuple<std::string, std::string>;
-
-  struct CodeSection : CodeSectionBase
-  {
-    using base = CodeSectionBase;
-    using base::base;
-
-    /// the language marker; returns an empty string if it was not present
-    const std::string& languageMarker() const { return std::get<0>(*this); }
-
-    /// returns the code.
-    const std::string& code()           const { return std::get<1>(*this); }
-  };
 
   /// loads a file from an input stream \p is and replaces the section described by the source range \p sourceRange
   ///   with a the code in the code section object \p codesec and writes the result to stream \p os.
@@ -264,11 +321,20 @@ namespace llmtools
   std::string
   fileToMarkdown(const std::string& langmarker, std::istream& srcstream, SourceRange rng);
 
+  /// printer handling code (e.g., unescaping characters)
+  struct CodePrinter
+  {
+    const std::string& code;
+  };
+
   /// prints the code from \p code to the stream \p os while unescaping
-  ///   escaped characters.
+  ///   escaped characters according to settings in \p prn.
   /// \return the number of lines printed.
-  std::size_t
-  printUnescaped(std::ostream& os, const std::string& srccode);
+  std::ostream&
+  operator<<(std::ostream& os, const CodePrinter& prn);
+
+
+
 
   //
   // JSON tools
@@ -277,15 +343,15 @@ namespace llmtools
   /// if the path cannot be found in \p obj then the alternative value \p alt is returned.
   /// \{
   std::string
-  loadField(const boost::json::value& obj, const std::string& path, const std::string& alt);
+  loadField(const JsonValue& obj, const std::string& path, const std::string& alt);
 
   bool
-  loadField(const boost::json::value& obj, const std::string& path, bool alt);
+  loadField(const JsonValue& obj, const std::string& path, bool alt);
 
   std::int64_t
-  loadField(const boost::json::value& obj, const std::string& path, std::int64_t alt);
+  loadField(const JsonValue& obj, const std::string& path, std::int64_t alt);
 
-  boost::json::value
-  loadField(const boost::json::value& obj, const std::string& path, boost::json::value alt);
+  JsonValue
+  loadField(const JsonValue& obj, const std::string& path, JsonValue alt);
   /// \}
 }

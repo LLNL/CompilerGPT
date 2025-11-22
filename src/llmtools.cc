@@ -430,13 +430,13 @@ loadAIResponseJson(const llmtools::Settings& settings)
 
 /// loads the AI response from a text file
 json::object
-loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& query)
+loadAIResponseTxt(const llmtools::Settings& settings, const llmtools::ConversationHistory& hist)
 {
   std::string txt = readTxtFile(settings.responseFile());
 
   if (isLogFile(settings.responseFile()))
   {
-    std::string history = llmtools::lastEntry(query) + "\nmodel";
+    std::string history = hist.lastEntry() + "\nmodel";
 
     txt = std::string{extractResponseFromLog(txt, history, "[end of text]")};
   }
@@ -446,7 +446,7 @@ loadAIResponseTxt(const llmtools::Settings& settings, const boost::json::value& 
 
 /// loads the AI response
 json::object
-loadAIResponse(const llmtools::Settings& settings, const boost::json::value& query)
+loadAIResponse(const llmtools::Settings& settings, const llmtools::ConversationHistory& query)
 {
   if (isJsonFile(settings.responseFile()))
     return loadAIResponseJson(settings);
@@ -466,9 +466,9 @@ environmentVariable(const std::string& varname, std::string alt = {})
 
 void
 writePromptFile( const std::string& promptFileName,
-                 boost::json::value structure,
+                 llmtools::JsonValue structure,
                  const llmtools::VariableMap& vars,
-                 const boost::json::value& query
+                 const llmtools::ConversationHistory& hist
                )
 {
   if (!isJsonFile(promptFileName))
@@ -487,7 +487,7 @@ writePromptFile( const std::string& promptFileName,
 
     // \todo consider integrating json objects into text expansion if possible..
     if (*str == "${LLMTOOLS:HISTORY}")
-      value = query;
+      value = hist.json();
     else
       *str = llmtools::expandText(std::string(*str), vars);
   }
@@ -510,12 +510,84 @@ fileNameOpt(const boost::json::value& structure, const std::string& alt)
   return alt;
 }
 
+/// writes out conversation history to a file so it can be used for the
+///   next AI invocation.
+
+struct CommandR
+{
+  StringView startOfTurnToken() const { return "<start_of_turn>"; }
+  StringView endOfTurnToken()   const { return "<end_of_turn>"; }
+
+  const llmtools::ConversationHistory& value;
+  bool  withInitiateResponse                 = true;
+  // bool               withSystem = false;
+};
+
+std::ostream&
+operator<<(std::ostream& os, CommandR comr)
+{
+  const json::array& arr = comr.value.json().as_array();
+
+  for (const json::value& msg : arr)
+  {
+    const json::object& obj = msg.as_object();
+
+    // Extract role and content
+    std::string role    = jsonString(obj, JK_HIST_ROLE_KEY);
+    std::string content = jsonString(obj, JK_HIST_CONTENT_KEY);
+
+    assert(!role.empty() && !content.empty());
+
+    if (role == "system")
+      continue;
+
+    os << comr.startOfTurnToken() << role
+       << "\n" << content << comr.endOfTurnToken()
+       << std::endl;
+  }
+
+  if (comr.withInitiateResponse)
+    os << comr.startOfTurnToken() << "model"
+       << std::endl;
+
+  return os;
+}
+
+struct JsonFormat
+{
+  const llmtools::ConversationHistory& hist;
+};
+
+std::ostream&
+operator<<(std::ostream& os, JsonFormat jsf)
+{
+  return os << jsf.hist.json();
+}
+
+
+void storeQuery(const std::string& historyfile, const llmtools::ConversationHistory& hist)
+{
+  std::ofstream out{historyfile};
+
+  if (isJsonFile(historyfile))
+    out << JsonFormat{hist} << std::endl;
+  else if (isTxtFile(historyfile))
+    out << CommandR{hist} << std::endl;
+  else
+    throw std::runtime_error{"Unknown history file format (file extension not in {.json, .txt})."};
+}
+
+void storeQuery(const llmtools::Settings& settings, const llmtools::ConversationHistory& hist)
+{
+  storeQuery(settings.historyFile(), hist);
+}
+
 
 /// calls AI and returns result in response file
 json::object
-invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
+invokeAI(const llmtools::Settings& settings, const llmtools::ConversationHistory& hist)
 {
-  storeQuery(settings, query);
+  storeQuery(settings, hist);
 
   std::string              promptFileName = fileNameOpt(settings.promptFile(), "");
   llmtools::VariableMap    vars =
@@ -527,7 +599,7 @@ invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
         {"LLMTOOLS:SYSTEM_TEXT_FILE", settings.systemTextFile() }
       };
 
-  writePromptFile(promptFileName, settings.promptFile(), vars, query);
+  writePromptFile(promptFileName, settings.promptFile(), vars, hist);
 
   std::string              execFlags = llmtools::expandText(settings.execFlags(), vars);
   std::vector<std::string> args;
@@ -571,57 +643,7 @@ invokeAI(const llmtools::Settings& settings, const boost::json::value& query)
     log << outstr.get() << std::endl;
   }
 
-  return loadAIResponse(settings, query);
-}
-
-/// appends a response \p response to a conversation history \p val.
-json::value
-appendResponse(json::value val, json::object response)
-{
-  json::array& res = val.as_array();
-
-  res.emplace_back(std::move(response));
-  return val;
-}
-
-struct CommandR
-{
-  StringView startOfTurnToken() const { return "<start_of_turn>"; }
-  StringView endOfTurnToken()   const { return "<end_of_turn>"; }
-
-  const json::value&           value;
-  bool  withInitiateResponse = true;
-  // bool               withSystem = false;
-};
-
-std::ostream&
-operator<<(std::ostream& os, CommandR comr)
-{
-  const json::array& arr = comr.value.as_array();
-
-  for (const json::value& msg : arr)
-  {
-    const json::object& obj = msg.as_object();
-
-    // Extract role and content
-    std::string role    = jsonString(obj, JK_HIST_ROLE_KEY);
-    std::string content = jsonString(obj, JK_HIST_CONTENT_KEY);
-
-    assert(!role.empty() && !content.empty());
-
-    if (role == "system")
-      continue;
-
-    os << comr.startOfTurnToken() << role
-       << "\n" << content << comr.endOfTurnToken()
-       << std::endl;
-  }
-
-  if (comr.withInitiateResponse)
-    os << comr.startOfTurnToken() << "model"
-       << std::endl;
-
-  return os;
+  return loadAIResponse(settings, hist);
 }
 
 
@@ -779,7 +801,7 @@ findProvider(const boost::json::object& config, const std::string& provider)
 LLMSetup
 findProvider(const llmtools::Configurations& config, const std::string& provider)
 {
-  return findProvider(config.as_object(), provider);
+  return findProvider(config.json().as_object(), provider);
 }
 
 
@@ -792,6 +814,74 @@ toString(Optional<StringView> opt)
 }
 
 
+/// prints the code from \p code to the stream \p os while unescaping
+///   escaped characters.
+/// \return the number of lines printed.
+std::size_t
+printUnescaped(std::ostream& os, const std::string& srccode)
+{
+  StringView  code = srccode;
+  std::size_t linecnt = 1;
+  char        last = ' ';
+  bool        lastIsLineBreak = false;
+
+  // print to os while handling (some) escaped characters
+  //   some escaped characters are commented are not handled in order not
+  //   to distort doxygen marks.
+  for (char ch : code)
+  {
+    lastIsLineBreak = false;
+
+    if (last == '\\')
+    {
+      switch (ch)
+      {
+        case 'f':  /* form feed */
+                   ++linecnt;
+                   os << '\n';
+                   [[fallthrough]];
+
+        case 'n':  ++linecnt;
+                   os << '\n';
+                   lastIsLineBreak = true;
+                   break;
+
+        //~ case 't':  os << "  ";
+                   //~ break;
+
+        //~ case 'a':  /* bell */
+        //~ case 'v':  /* vertical tab */
+        //~ case 'r':  /* carriage return */
+                   //~ break;
+
+        case '\'':
+        case '"' :
+        case '?' :
+        case '\\': os << ch;
+                   break;
+
+        default:   os << last << ch;
+      }
+
+      last = ' ';
+    }
+    else if (ch == '\n')
+    {
+      os << ch;
+      ++linecnt;
+      lastIsLineBreak = true;
+    }
+    else if (ch == '\\')
+      last = ch;
+    else
+      os << ch;
+  }
+
+  if (!lastIsLineBreak) os << '\n';
+
+  return linecnt;
+}
+
 } // anonymous namespace
 
 namespace llmtools
@@ -800,12 +890,88 @@ namespace llmtools
 const char* const LLMnone = "<none>";
 const char* const LLMerror = "<error!>";
 
-boost::json::value
-queryResponse(const Settings& settings, boost::json::value query)
+
+ConversationHistory::ConversationHistory(const Settings& settings, const std::string& systemText)
+: val(json::array())
+{
+  if (settings.systemTextFile().empty())
+  {
+    json::object line;
+
+    line[JK_HIST_ROLE_KEY]    = "system";
+    line[JK_HIST_CONTENT_KEY] = systemText;
+
+    val.as_array().emplace_back(std::move(line));
+  }
+  else
+  {
+    std::ofstream ofs{settings.systemTextFile()};
+
+    ofs << systemText;
+  }
+}
+
+ConversationHistory::ConversationHistory(JsonValue jv)
+: val(std::move(jv))
+{}
+
+ConversationHistory&
+ConversationHistory::append(JsonValue entry)
+{
+  val.as_array().emplace_back(std::move(entry));
+  return *this;
+}
+
+ConversationHistory&
+ConversationHistory::appendPrompt(const std::string& prompt)
+{
+  json::object promptValue = { { JK_HIST_ROLE_KEY,    "user" }
+                             , { JK_HIST_CONTENT_KEY, prompt }
+                             };
+
+  return this->append(std::move(promptValue));
+}
+
+std::string
+ConversationHistory::lastEntry() const
+{
+  const json::value&  last = val.as_array().back();
+  const json::object& obj  = last.as_object();
+  const json::string  str  = obj.at(JK_HIST_CONTENT_KEY).as_string();
+
+  return std::string(str.data(), str.size());
+}
+
+const JsonValue&
+ConversationHistory::json() const
+{
+  return val;
+}
+
+std::ostream&
+operator<<(std::ostream& os, const ConversationHistory& hist)
+{
+  return os << JsonFormat{hist};
+}
+
+ConversationHistory
+queryResponse(const Settings& settings, ConversationHistory query)
 {
   json::object response = invokeAI(settings, query);
 
-  return appendResponse(std::move(query), std::move(response));
+  query.append(std::move(response));
+  return query;
+}
+
+//
+// Configurations
+
+Configurations::Configurations() : val(boost::json::object{}) {}
+
+Configurations(JsonValue js) : val(std::move(js))
+{
+  if (val.if_object() == nullptr)
+    throw std::runtime_error("The argument js must be a valid JSON object.");
 }
 
 /// processes a JSON stream.
@@ -899,25 +1065,6 @@ settings(const json::value& cnf, const Settings& oldSettings)
 }
 
 
-/// writes out conversation history to a file so it can be used for the
-///   next AI invocation.
-
-void storeQuery(const std::string& historyfile, const boost::json::value& conversationHistory)
-{
-  std::ofstream out{historyfile};
-
-  if (isJsonFile(historyfile))
-    out << conversationHistory << std::endl;
-  else if (isTxtFile(historyfile))
-    out << CommandR{conversationHistory} << std::endl;
-  else
-    throw std::runtime_error{"Unknown history file format (file extension not in {.json, .txt})."};
-}
-
-void storeQuery(const Settings& settings, const json::value& history)
-{
-  storeQuery(settings.historyFile(), history);
-}
 
 
 std::string defaultModel(const Configurations& configs, const LLMProvider& provider)
@@ -961,56 +1108,6 @@ configure(const Configurations& configs, const std::string& provider, const std:
 }
 
 
-/// gets the last response from the \p conversationHistory
-std::string
-lastEntry(const boost::json::value& conversationHistory)
-{
-  const json::array&  arr = conversationHistory.as_array();
-  const json::value&  last = arr.back();
-  const json::object& obj = last.as_object();
-  const json::string  str = obj.at(JK_HIST_CONTENT_KEY).as_string();
-
-  return std::string(str.data(), str.size());
-}
-
-
-boost::json::value
-createConversationHistory(const Settings& settings, const std::string& systemText)
-{
-  json::array res;
-
-  if (settings.systemTextFile().empty())
-  {
-    json::object line;
-
-    line[JK_HIST_ROLE_KEY]    = "system";
-    line[JK_HIST_CONTENT_KEY] = systemText;
-
-    res.emplace_back(std::move(line));
-  }
-  else
-  {
-    std::ofstream ofs{settings.systemTextFile()};
-
-    ofs << systemText;
-  }
-
-  return res;
-}
-
-
-boost::json::value
-appendPrompt(boost::json::value conversationHistory, const std::string& prompt)
-{
-  json::array& convHistory = conversationHistory.as_array();
-  json::object promptValue;
-
-  promptValue[JK_HIST_ROLE_KEY]    = "user";
-  promptValue[JK_HIST_CONTENT_KEY] = prompt;
-
-  convHistory.emplace_back(std::move(promptValue));
-  return conversationHistory;
-}
 
 LLMProvider
 provider(const Configurations& configs, const std::string& providerName)
@@ -1239,73 +1336,6 @@ replaceSourceSection(std::ostream& os, std::istream& is, SourceRange sourceRange
 }
 
 
-/// prints the code from \p code to the stream \p os while unescaping
-///   escaped characters.
-/// \return the number of lines printed.
-std::size_t
-printUnescaped(std::ostream& os, const std::string& srccode)
-{
-  StringView  code = srccode;
-  std::size_t linecnt = 1;
-  char        last = ' ';
-  bool        lastIsLineBreak = false;
-
-  // print to os while handling (some) escaped characters
-  //   some escaped characters are commented are not handled in order not
-  //   to distort doxygen marks.
-  for (char ch : code)
-  {
-    lastIsLineBreak = false;
-
-    if (last == '\\')
-    {
-      switch (ch)
-      {
-        case 'f':  /* form feed */
-                   ++linecnt;
-                   os << '\n';
-                   [[fallthrough]];
-
-        case 'n':  ++linecnt;
-                   os << '\n';
-                   lastIsLineBreak = true;
-                   break;
-
-        //~ case 't':  os << "  ";
-                   //~ break;
-
-        //~ case 'a':  /* bell */
-        //~ case 'v':  /* vertical tab */
-        //~ case 'r':  /* carriage return */
-                   //~ break;
-
-        case '\'':
-        case '"' :
-        case '?' :
-        case '\\': os << ch;
-                   break;
-
-        default:   os << last << ch;
-      }
-
-      last = ' ';
-    }
-    else if (ch == '\n')
-    {
-      os << ch;
-      ++linecnt;
-      lastIsLineBreak = true;
-    }
-    else if (ch == '\\')
-      last = ch;
-    else
-      os << ch;
-  }
-
-  if (!lastIsLineBreak) os << '\n';
-
-  return linecnt;
-}
 
 /// queries a string field from a JSON object.
 std::string
@@ -1381,5 +1411,13 @@ loadField(const json::value& obj, const std::string& path, boost::json::value al
 
   return alt;
 }
+
+std::ostream&
+operator<<(std::ostream& os, const CodePrinter& prn)
+{
+  printUnescaped(os, prn.code);
+  return os;
+}
+
 
 }

@@ -86,7 +86,10 @@ pretty_print( std::ostream& os, json::value const& jv, std::string* indent = nul
 
     case json::kind::string:
     {
-        llmtools::printUnescaped(os, json::serialize(jv.get_string()));
+        std::string txt = json::serialize(jv.get_string());
+
+        // \todo consider using code printer just for ``` blocks.
+        os << llmtools::CodePrinter{txt};
         break;
     }
 

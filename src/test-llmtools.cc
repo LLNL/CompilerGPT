@@ -126,21 +126,21 @@ int main(int argc, char* argv[])
         log("System prompt: " + systemPrompt);
 
         log("Creating conversation history");
-        boost::json::value conversationHistory = llmtools::createConversationHistory(config, systemPrompt);
+        llmtools::ConversationHistory conversationHistory(config, systemPrompt);
         log("Conversation history created");
 
         std::string prompt = "Optimize the following code snippet: \n```cpp\n x = x + x + x + x;\n```\nwhere x is of type int.";
         log("User prompt: " + prompt);
 
         log("Appending prompt to conversation history");
-        conversationHistory = llmtools::appendPrompt(conversationHistory, prompt);
+        conversationHistory.appendPrompt(prompt);
         log("Prompt appended");
 
         log("Querying LLM for response");
         conversationHistory = llmtools::queryResponse(config, conversationHistory);
         log("Response received");
 
-        std::string fullResponse = llmtools::lastEntry(conversationHistory);
+        std::string fullResponse = conversationHistory.lastEntry();
         log("AI response: " + fullResponse);
 
         std::cout << "\nAI response:\n"

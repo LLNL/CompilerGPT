@@ -1085,14 +1085,14 @@ invokeTestScript(const Settings& settings, GlobalVars& globals, const Placeholde
 
 
 /// generates a conversation history containing the first prompt.
-json::value
+llmtools::ConversationHistory
 initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string output, const Revision& rev)
 {
-  // do not generate a prompt in this case
-  if (settings.iterations == 0)
-    return {};
+  llmtools::ConversationHistory res{settings.llmSettings, settings.systemText};
 
-  json::value    res = createConversationHistory(settings.llmSettings, settings.systemText);
+  if (settings.iterations == 0)
+    return res;
+
   long double    score = rev.result().score();
   std::int64_t   iscore = score;
   PlaceholderMap extras{ {"code",     fileToMarkdown(settings.inputLang, std::string(args.all.back()), args.kernel)},
@@ -1101,14 +1101,13 @@ initialPrompt(const Settings& settings, const CmdLineArgs& args, std::string out
                          {"scoreint", std::to_string(iscore)}
                        };
 
-  res = llmtools::appendPrompt( std::move(res),
-                                expandText( settings.firstPrompt,
-                                            args.vars,
-                                            args.kernel,
-                                            std::ref(settings),
-                                            std::move(extras)
-                                          )
-                              );
+  res.appendPrompt( expandText( settings.firstPrompt,
+                                args.vars,
+                                args.kernel,
+                                std::ref(settings),
+                                std::move(extras)
+                              )
+                  );
 
   return res;
 }
@@ -1565,40 +1564,40 @@ struct CmdLineProc
 
   void operator()(std::string_view arg)
   {
-    if (arg.rfind(phelpconfig, 0) != std::string::npos)
+    if (arg.rfind(phelpconfig, 0) == 0)
       opts.helpConfig = true;
-    else if (arg.rfind(phelpvariables, 0) != std::string::npos)
+    else if (arg.rfind(phelpvariables, 0) == 0)
       opts.helpVariables = true;
-    else if (arg.rfind(pversion, 0) != std::string::npos)
+    else if (arg.rfind(pversion, 0) == 0)
       opts.showVersion = true;
-    else if (arg.rfind(phelp, 0) != std::string::npos)
+    else if (arg.rfind(phelp, 0) == 0)
       opts.help = true;
-    else if (arg.rfind(phelp2, 0) != std::string::npos)
+    else if (arg.rfind(phelp2, 0) == 0)
       opts.help = true;
-    else if (arg.rfind(phelp3, 0) != std::string::npos)
+    else if (arg.rfind(phelp3, 0) == 0)
       opts.help = true;
-    else if (arg.rfind(pconfigmodel, 0) != std::string::npos)
+    else if (arg.rfind(pconfigmodel, 0) == 0)
       opts.configModel = arg.substr(pconfigmodel.size());
-    else if (arg.rfind(pconfigai, 0) != std::string::npos)
+    else if (arg.rfind(pconfigai, 0) == 0)
       opts.configAI = arg.substr(pconfigai.size());
-    else if (arg.rfind(pconfigcreate, 0) != std::string::npos)
+    else if (arg.rfind(pconfigcreate, 0) == 0)
       opts.configCreate = true;
-    else if (arg.rfind(pdocconfigcreate, 0) != std::string::npos)
+    else if (arg.rfind(pdocconfigcreate, 0) == 0)
       opts.configCreate = opts.withDocFields = true;
-    else if (arg.rfind(pconfigfrom, 0) != std::string::npos)
+    else if (arg.rfind(pconfigfrom, 0) == 0)
       opts.configFrom = arg.substr(pconfigfrom.size());
-    else if (arg.rfind(pconfigcompiler, 0) != std::string::npos)
+    else if (arg.rfind(pconfigcompiler, 0) == 0)
       std::tie(opts.configCompiler, opts.configCompilerFamily)
           = determineCompilerFamily(arg.substr(pconfigcompiler.size()));
-    else if (arg.rfind(pconfig, 0) != std::string::npos)
+    else if (arg.rfind(pconfig, 0) == 0)
       opts.configFileName = arg.substr(pconfig.size());
-    else if (arg.rfind(pkernel, 0) != std::string::npos)
+    else if (arg.rfind(pkernel, 0) == 0)
       opts.kernel = parseSourceRange(arg.substr(pkernel.size()));
-    else if (arg.rfind(pvar, 0) != std::string::npos)
+    else if (arg.rfind(pvar, 0) == 0)
       parseUserVar(opts.vars, arg.substr(pvar.size()));
-    else if (arg.rfind(pcsvsummary, 0) != std::string::npos)
+    else if (arg.rfind(pcsvsummary, 0) == 0)
       opts.csvsummary = arg.substr(pcsvsummary.size());
-    else if (arg.rfind(pmodelConfig, 0) != std::string::npos)
+    else if (arg.rfind(pmodelConfig, 0) == 0)
       opts.configFiles.emplace_back(arg.substr(pmodelConfig.size()));
     else
       opts.all.push_back(arg);
@@ -1714,11 +1713,11 @@ void reportResults(std::ostream& os, const std::vector<Revision>& variants)
 }
 
 
-std::tuple<json::value, std::vector<Revision>, bool>
+std::tuple<llmtools::ConversationHistory, std::vector<Revision>, bool>
 promptResponseEval( const CmdLineArgs& cmdlnargs,
                     const Settings& settings,
                     GlobalVars& globals,
-                    json::value conversation,
+                    llmtools::ConversationHistory conversation,
                     std::vector<Revision> variants,
                     bool lastIteration
                   )
@@ -1729,18 +1728,9 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
     conversation = llmtools::queryResponse(settings.llmSettings, std::move(conversation));
   }
 
-  if (false)
-  {
-    const json::array&  convo   = conversation.as_array();
-    const json::value&  lastVal = convo.back();
-    const json::object& lastObj = lastVal.as_object();
-    if (auto pos = lastObj.find("stop_reason"); pos != lastObj.end())
-      std::cerr << "stop_reason" << ": " << pos->value() << "\n";
-  }
-
   try
   {
-    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, llmtools::lastEntry(conversation));
+    const auto [newFile, kernelrange] = storeGeneratedFile(settings, cmdlnargs, conversation.lastEntry());
     CompilationResult compres         = compileResult(settings, cmdlnargs, globals, newFile, kernelrange);
 
     if (compres.success())
@@ -1772,7 +1762,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                             );
 
           // \todo add quality assessment to prompt
-          conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
+          conversation.appendPrompt(prompt);
         }
       }
       else
@@ -1792,7 +1782,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                               std::move(extras)
                                             );
 
-          conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
+          conversation.appendPrompt(prompt);
         }
       }
     }
@@ -1816,23 +1806,23 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
                                          std::move(extras)
                                        );
 
-        conversation = llmtools::appendPrompt(std::move(conversation), std::move(prompt));
+        conversation.appendPrompt(prompt);
       }
     }
   }
   catch (const MissingCodeError&)
   {
-    std::string response = "Unable to find the markdown code block. Respond by putting the optimized code in a markdown code block.";
+    std::string prompt = "Unable to find the markdown code block. Respond by putting the optimized code in a markdown code block.";
 
+    conversation.appendPrompt(prompt);
     variants.emplace_back("--no-code--", TestResult{false, nanValue<long double>(), "<no code marker>"});
-    conversation = llmtools::appendPrompt(std::move(conversation), std::move(response));
   }
   catch (const MultipleCodeSectionsError&)
   {
-    std::string response = "There were multiple code sections in the response. Return the optimized code within a single markdown code block.";
+    std::string prompt = "There were multiple code sections in the response. Return the optimized code within a single markdown code block.";
 
+    conversation.appendPrompt(prompt);
     variants.emplace_back("|codes-section|>1", TestResult{false, nanValue<long double>(), "<too may code segments>"});
-    conversation = llmtools::appendPrompt(std::move(conversation), std::move(response));
   }
 
   return { std::move(conversation), std::move(variants), false };
@@ -1840,7 +1830,7 @@ promptResponseEval( const CmdLineArgs& cmdlnargs,
 
 /// core loop managing AI/tool interactions
 /// \return the conversation and the code revisions
-std::tuple<json::value, std::vector<Revision> >
+std::tuple<llmtools::ConversationHistory, std::vector<Revision> >
 driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globals)
 {
   CompilationResult     compres    = compileResult(settings, cmdlnargs, globals);
@@ -1858,12 +1848,8 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
     exit(1);
   }
 
-  std::vector<Revision> variants = { initialAssessment(settings, cmdlnargs, globals) };
-  json::value           query    = initialPrompt( settings,
-                                                  cmdlnargs,
-                                                  compres.output(),
-                                                  variants.back()
-                                                );
+  std::vector<Revision>         variants = { initialAssessment(settings, cmdlnargs, globals) };
+  llmtools::ConversationHistory hist = initialPrompt(settings, cmdlnargs, compres.output(), variants.back());
 
   try
   {
@@ -1873,13 +1859,13 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
     {
       --iterations;
 
-      std::tie(query, variants, stopEarly) = promptResponseEval( cmdlnargs,
-                                                                 settings,
-                                                                 globals,
-                                                                 std::move(query),
-                                                                 std::move(variants),
-                                                                 iterations == 0
-                                                               );
+      std::tie(hist, variants, stopEarly) = promptResponseEval( cmdlnargs,
+                                                                settings,
+                                                                globals,
+                                                                std::move(hist),
+                                                                std::move(variants),
+                                                                iterations == 0
+                                                              );
     }
   }
   catch (const std::exception& ex)
@@ -1893,7 +1879,7 @@ driver(const CmdLineArgs& cmdlnargs, const Settings& settings, GlobalVars& globa
               << std::endl;
   }
 
-  return { std::move(query), std::move(variants) };
+  return { std::move(hist), std::move(variants) };
 }
 
 
@@ -1968,7 +1954,11 @@ int main(int argc, char** argv)
   // prepare final report
 
   // store query and results for review
-  llmtools::storeQuery(settings.llmSettings, conversationHistory);
+  {
+    std::ofstream histFile(settings.llmSettings.historyFile());
+
+    histFile << conversationHistory << std::endl;
+  }
 
   // \todo go over results and rank them based on success and results
   reportResults<ResultPrinter>(std::cout, revisions);

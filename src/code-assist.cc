@@ -97,35 +97,29 @@ CoderData extractCodeData(std::istream& is)
   return res;
 }
 
-boost::json::value
+llmtools::ConversationHistory
 prepareConversationHistory(const Settings& settings, const CoderData& data)
 {
-  boost::json::value res;
   std::string        codeMarkdown;
 
   if (data.followup)
-  {
-    res = llmtools::readJsonFile(settings.tools.historyFile());
-  }
-  else
-  {
-    std::stringstream codeStream(data.code);
+    return llmtools::ConversationHistory{llmtools::readJsonFile(settings.tools.historyFile())};
 
-    res = createConversationHistory(settings.tools, settings.systemMsg);
-    codeMarkdown = fileToMarkdown(settings.langMarker, codeStream, llmtools::SourceRange::all());
-  }
+  std::stringstream             codeStream(data.code);
+  llmtools::ConversationHistory res(settings.tools, settings.systemMsg);
 
-  return llmtools::appendPrompt(std::move(res), data.prompt + codeMarkdown);
+  res.appendPrompt(fileToMarkdown(settings.langMarker, codeStream, llmtools::SourceRange::all()));
+  return res;
 }
 
-boost::json::value
-queryResponse(const Settings& settings, boost::json::value history)
+llmtools::ConversationHistory
+queryResponse(const Settings& settings, llmtools::ConversationHistory history)
 {
   const bool NO_RESPONSE_FOR_TESTING = false;
 
   if (NO_RESPONSE_FOR_TESTING)
   {
-    std::cerr << "queryResponse" << history << std::endl;
+    std::cerr << "noqueryResponse" << history << std::endl;
     return history;
   }
 
@@ -133,33 +127,21 @@ queryResponse(const Settings& settings, boost::json::value history)
 }
 
 void
-storeHistory(const Settings& settings, const boost::json::value& history)
+storeHistory(const Settings& settings, const llmtools::ConversationHistory& history)
 {
-  storeQuery(settings.tools, history);
+  std::ofstream histFile{settings.tools.historyFile()};
+
+  histFile << history << std::endl;
 }
 
 void
-printResponse(std::ostream& os, const Settings&, const boost::json::value& history)
+printResponse(std::ostream& os, const Settings&, const llmtools::ConversationHistory& history)
 {
-  for (const llmtools::CodeSection& code : llmtools::extractCodeSections(llmtools::lastEntry(history)))
-  {
-    llmtools::printUnescaped(os, code.code());
-    os << std::endl;
-  }
+  for (const llmtools::CodeSection& code : llmtools::extractCodeSections(history.lastEntry()))
+    os << llmtools::CodePrinter{code.code()}
+       << std::endl;
 }
 
-
-/// queries a string field from a JSON object.
-std::string_view
-loadField(const boost::json::object& cnfobj, std::string fld, const std::string& alt)
-{
-  const auto pos = cnfobj.find(fld);
-
-  if (pos != cnfobj.end())
-    return pos->value().as_string();
-
-  return alt;
-}
 
 
 Settings
@@ -174,10 +156,10 @@ parseConfigFile(std::string_view configFileName, Settings settings)
 
     config.tools = llmtools::settings(cnfobj["tools"].as_object(), config.tools);
 
-    config.systemMsg      = loadField(cnfobj, "systemMsg",       config.systemMsg);
-    config.langMarker     = loadField(cnfobj, "langMarker",      config.langMarker);
-    config.historyFile    = loadField(cnfobj, "historyFile",     config.historyFile);
-    config.provider       = loadField(cnfobj, "provider",        config.provider);
+    config.systemMsg      = llmtools::loadField(cnfobj, "systemMsg",       config.systemMsg);
+    config.langMarker     = llmtools::loadField(cnfobj, "langMarker",      config.langMarker);
+    config.historyFile    = llmtools::loadField(cnfobj, "historyFile",     config.historyFile);
+    config.provider       = llmtools::loadField(cnfobj, "provider",        config.provider);
 
     config.tools.historyFile() = config.historyFile;
 
@@ -304,8 +286,8 @@ int main(int argc, char* argv[])
   if (settings.printConfig)
     return 0;
 
-  CoderData                data    = extractCodeData(std::cin);
-  boost::json::value       history = prepareConversationHistory(settings, data);
+  CoderData                     data    = extractCodeData(std::cin);
+  llmtools::ConversationHistory history = prepareConversationHistory(settings, data);
 
   history = queryResponse(settings, std::move(history));
 
