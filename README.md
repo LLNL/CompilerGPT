@@ -209,9 +209,7 @@ The default model for OpenAI is gpt-4o
 AI response:
 To optimize the given code snippet, you can use the multiplication operator to achieve the same result more efficiently. Instead of adding `x` to itself multiple times, you can multiply `x` by 4:
 
-```cpp
 x = x * 4;
-```
 
 This change reduces the number of operations and makes the code more concise and clear.
 ```
