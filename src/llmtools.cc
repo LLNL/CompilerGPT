@@ -734,7 +734,7 @@ mergeJson(boost::json::value lhs, boost::json::value rhs)
     }
 
     // Add the key-value pair from rhs to the result
-    lhsobj.emplace(std::move(key), std::move(value));
+    lhsobj.emplace(key, value);
   }
 
   return lhs;
@@ -968,7 +968,7 @@ queryResponse(const Settings& settings, ConversationHistory query)
 
 Configurations::Configurations() : val(boost::json::object{}) {}
 
-Configurations(JsonValue js) : val(std::move(js))
+Configurations::Configurations(JsonValue js) : val(std::move(js))
 {
   if (val.if_object() == nullptr)
     throw std::runtime_error("The argument js must be a valid JSON object.");
@@ -1075,13 +1075,13 @@ std::string defaultModel(const Configurations& configs, const LLMProvider& provi
 Configurations
 initializeWithDefault(Configurations current)
 {
-  return mergeJson(std::move(current), readJsonFile(llmtoolsLibraryBasePath() + "/etc/llmtools/llmtools-default.json"));
+  return Configurations{mergeJson(current.json(), readJsonFile(llmtoolsLibraryBasePath() + "/etc/llmtools/llmtools-default.json"))};
 }
 
 Configurations
 initializeWithConfigFile(const std::string& configFileName, Configurations current)
 {
-  return mergeJson(std::move(current), readJsonFile(configFileName));
+  return Configurations{mergeJson(current.json(), readJsonFile(configFileName))};
 }
 
 Settings

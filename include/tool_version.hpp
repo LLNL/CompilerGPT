@@ -1,1 +1,1 @@
-#define TOOL_VERSION "1.25.11.21"
+#define TOOL_VERSION "1.25.12.15"
